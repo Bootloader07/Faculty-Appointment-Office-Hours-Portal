@@ -115,7 +115,7 @@ export async function render(container, facultyId) {
       btn.disabled = true;
 
       const res = await api.post('/appointments', {
-        faculty_id: parseInt(facultyId, 10),
+        faculty_id: facultyId,
         slot_datetime: selectedSlot.datetime,
         duration: selectedSlot.duration,
         reason: reason

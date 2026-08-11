@@ -10,9 +10,9 @@ export const api = {
         }
       });
       const data = await res.json();
-      return { success: res.ok, data, error: res.ok ? null : data.error || 'Request failed' };
+      return { success: res.ok, ok: res.ok, status: res.status, data, error: res.ok ? null : (data.error || 'Request failed') };
     } catch (e) {
-      return { success: false, data: null, error: 'Network error. Please try again.' };
+      return { success: false, ok: false, status: 0, data: null, error: 'Network error. Please try again.' };
     }
   },
   async get(path) {

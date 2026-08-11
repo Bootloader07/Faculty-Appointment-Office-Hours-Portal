@@ -69,25 +69,29 @@ function renderLayout(user, contentModule, param) {
 // ─── Main router ───────────────────────────────────────────────
 async function router() {
   let hash = window.location.hash || '';
+  const user = currentUser;
+
+  // ── Default route fallback if hash is empty ─────────────────
+  if (!hash || hash === '#' || hash === '#/') {
+    const targetHash = user ? `#/${user.role}/dashboard` : '#/login';
+    if (window.location.hash !== targetHash) {
+      window.location.hash = targetHash;
+    }
+    hash = targetHash;
+  }
 
   // ── Logout ─────────────────────────────────────────────────
   if (hash === '#/logout') {
-    api.post('/auth/logout').catch(() => {}); // best-effort server logout
+    api.post('/auth/logout').catch(() => {});
     clearCurrentUser();
     window.location.hash = '#/login';
     return;
   }
 
-  // ── Read user synchronously from localStorage (via state.js) ─
-  // This is set immediately by setCurrentUser() after login,
-  // so it's always populated on the very next hash-change.
-  // We also kick off a background server sync, but don't await it here.
-  const user = currentUser; // synchronous read from module-level variable
-
   // Kick off background sync (do NOT await — avoids the race condition)
   syncAuthWithServer().catch(() => {});
 
-  const isAuthRoute = (hash === '#/login' || hash === '#/register' || hash === '');
+  const isAuthRoute = (hash === '#/login' || hash === '#/register');
 
   // ── Unauthenticated → force login ───────────────────────────
   if (!user && !isAuthRoute) {

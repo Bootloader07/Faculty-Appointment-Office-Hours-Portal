@@ -138,16 +138,14 @@ export function render(container) {
   });
 
   async function handleLogin() {
-    const email    = document.getElementById('login-email').value.trim();
+    const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
 
-    // ── Basic client-side validation ──────────────────────────
     if (!email || !password) {
       showError('Please enter your email and password.');
       return;
     }
 
-    // ── Loading state ─────────────────────────────────────────
     btn.disabled = true;
     btn.innerHTML = `
       <span style="display:inline-flex; align-items:center; gap:0.5rem;">
@@ -156,52 +154,57 @@ export function render(container) {
       </span>`;
     errorDiv.style.display = 'none';
 
-    // ── Simulate 1-second async auth (per spec) ───────────────
-    await new Promise(r => setTimeout(r, 1000));
+    try {
+      // 1. Try Express session API login
+      const res = await api.post('/auth/login', { email, password });
 
-    // ── Try the real Express session API first ─────────────────
-    const res = await api.post('/auth/login', { email, password });
+      if (res.ok || res.success) {
+        const user = res.data?.user || res.data?.data || res.data;
+        const confirmedRole = user?.role;
 
-    if (res.success && res.data) {
-      const user = res.data;
-      console.log('✅ Logged in via API:', user);
-      setCurrentUser(user);
-      redirectToDashboard(user.role);
-      return;
+        if (confirmedRole) {
+          setCurrentUser(user);
+          redirectToDashboard(confirmedRole);
+          return;
+        }
+      }
+
+      // 2. Fallback: match against DEMO_USERS list (in case server database was reset)
+      const matched = DEMO_USERS.find(
+        u => u.email.toLowerCase() === email.toLowerCase() && u.password === password
+      );
+
+      if (matched) {
+        const { password: _pw, ...safeUser } = matched;
+        setCurrentUser(safeUser);
+        redirectToDashboard(safeUser.role);
+        return;
+      }
+
+      // 3. Auth failed
+      const errorMsg = res.error || (res.data && res.data.error) || 'Invalid email or password. Please try again.';
+      showError(errorMsg);
+      document.getElementById('login-password').value = '';
+      document.getElementById('login-password').focus();
+    } catch (err) {
+      showError(err.message || 'An error occurred during sign in.');
+    } finally {
+      // Always restore button state if still on login page
+      btn.disabled = false;
+      btn.innerHTML = 'Sign In';
     }
+  }
 
-    // ── Fallback: match against DEMO_USERS list ────────────────
-    // (handles the case where the server isn't running or session expired)
-    const matched = DEMO_USERS.find(
-      u => u.email === email && u.password === password
-    );
-
-    if (matched) {
-      const { password: _pw, ...safeUser } = matched; // never store plain password
-      console.log('✅ Logged in via demo fallback:', safeUser);
-      setCurrentUser(safeUser);
-      redirectToDashboard(safeUser.role);
-      return;
-    }
-
-    // ── Auth failed ────────────────────────────────────────────
-    showError('Invalid email or password. Please try again.');
-    document.getElementById('login-password').value = ''; // clear only password
-    document.getElementById('login-password').focus();
+  function showError(msg) {
+    errorDiv.textContent = msg;
+    errorDiv.style.display = 'block';
     btn.disabled = false;
     btn.innerHTML = 'Sign In';
   }
 
-  function showError(msg) {
-    errorDiv.textContent    = msg;
-    errorDiv.style.display  = 'block';
-    btn.disabled            = false;
-    btn.innerHTML           = 'Sign In';
-  }
-
   function redirectToDashboard(role) {
     const destinations = {
-      admin:   '#/admin/dashboard',
+      admin: '#/admin/dashboard',
       faculty: '#/faculty/dashboard',
       student: '#/student/dashboard',
     };

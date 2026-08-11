@@ -12,8 +12,9 @@ export async function render(container) {
 
   const officeHours = res.data || [];
 
+  const daysOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const daysMap = {
-    0: 'Sunday', 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday'
+    'Mon': 'Monday', 'Tue': 'Tuesday', 'Wed': 'Wednesday', 'Thu': 'Thursday', 'Fri': 'Friday', 'Sat': 'Saturday', 'Sun': 'Sunday'
   };
 
   const content = `
@@ -23,13 +24,13 @@ export async function render(container) {
         <div class="form-group" style="margin:0;">
           <label class="form-label">Day of Week</label>
           <select id="day_of_week" class="form-control" required>
-            <option value="1">Monday</option>
-            <option value="2">Tuesday</option>
-            <option value="3">Wednesday</option>
-            <option value="4">Thursday</option>
-            <option value="5">Friday</option>
-            <option value="6">Saturday</option>
-            <option value="0">Sunday</option>
+            <option value="Mon">Monday</option>
+            <option value="Tue">Tuesday</option>
+            <option value="Wed">Wednesday</option>
+            <option value="Thu">Thursday</option>
+            <option value="Fri">Friday</option>
+            <option value="Sat">Saturday</option>
+            <option value="Sun">Sunday</option>
           </select>
         </div>
         <div class="form-group" style="margin:0;">
@@ -67,9 +68,9 @@ export async function render(container) {
               </tr>
             </thead>
             <tbody>
-              ${officeHours.sort((a,b)=>a.day_of_week - b.day_of_week).map(oh => `
+              ${officeHours.sort((a,b)=>daysOrder.indexOf(a.day_of_week) - daysOrder.indexOf(b.day_of_week)).map(oh => `
                 <tr>
-                  <td>${daysMap[oh.day_of_week]}</td>
+                  <td>${daysMap[oh.day_of_week] || oh.day_of_week}</td>
                   <td>${oh.start_time} - ${oh.end_time}</td>
                   <td>${oh.slot_duration} min</td>
                   <td>
@@ -89,7 +90,7 @@ export async function render(container) {
   document.getElementById('oh-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const payload = {
-      day_of_week: parseInt(document.getElementById('day_of_week').value, 10),
+      day_of_week: document.getElementById('day_of_week').value,
       start_time: document.getElementById('start_time').value,
       end_time: document.getElementById('end_time').value,
       slot_duration: parseInt(document.getElementById('slot_duration').value, 10)
