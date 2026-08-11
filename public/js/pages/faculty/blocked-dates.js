@@ -1,104 +1,119 @@
-import { api } from '../../api.js';
-import { renderSpinner, renderPage, renderEmpty, showModal, showToast } from '../../components/shared.js';
+import {
+  getBlockedDates,
+  saveBlockedDate,
+  deleteBlockedDate
+} from '../../data/store.js';
+import {
+  renderEmpty,
+  renderPage,
+  showToast
+} from '../../components/shared.js';
 
-export async function render(container) {
-  container.innerHTML = renderSpinner();
+function getUser() {
+  try {
+    const u = JSON.parse(localStorage.getItem('currentUser'));
+    if (!u || u.role !== 'faculty') {
+      window.location.hash = '#/login';
+      return null;
+    }
+    return u;
+  } catch {
+    window.location.hash = '#/login';
+    return null;
+  }
+}
 
-  const res = await api.get('/blocked-dates');
-  if (!res.success) {
-    container.innerHTML = renderPage('Blocked Dates', 'Faculty', `<div class="card"><p>Error loading blocked dates.</p></div>`);
-    return;
+export function render(container) {
+  const user = getUser();
+  if (!user) return;
+
+  const bDates = getBlockedDates(user.id);
+  bDates.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  let datesHTML = '';
+  if (bDates.length === 0) {
+    datesHTML = renderEmpty('Calendar', 'No blocked dates', 'You have not blocked any dates.');
+  } else {
+    datesHTML = bDates.map(bd => {
+      const fmtDate = new Date(bd.date + 'T00:00:00').toLocaleDateString('en-IN', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+      });
+      return `
+        <div class="card" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <strong>${fmtDate}</strong> — ${bd.reason || 'No reason provided'}
+          </div>
+          <button class="btn btn-danger btn-delete" data-id="${bd.id}">❌ Remove</button>
+        </div>
+      `;
+    }).join('');
   }
 
-  const blockedDates = res.data || [];
-
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const minDate = tomorrow.toISOString().split('T')[0];
+  const todayStr = new Date().toISOString().slice(0, 10);
 
   const content = `
-    <div style="background:rgba(59, 130, 246, 0.1); border-left:4px solid var(--status-rescheduled); padding:1rem; border-radius:6px; margin-bottom:2rem; color:var(--text-1);">
-      ℹ️ Blocking a date prevents students from booking slots on that day even if office hours are set. Use this for holidays, leave, or special events.
-    </div>
-
-    <div class="card" style="margin-bottom:2rem;">
-      <h3 style="margin-bottom:1rem;">Block a Date</h3>
-      <form id="block-form" style="display:flex; gap:1rem; align-items:end; flex-wrap:wrap;">
-        <div class="form-group" style="margin:0; flex:1; min-width:200px;">
+    <div class="card" style="margin-bottom: 2rem;">
+      <h3>Block a Date</h3>
+      <div id="bd-error" style="color: #ef4444; margin-bottom: 1rem; display: none;"></div>
+      <div style="display: flex; gap: 1rem; align-items: end;">
+        <div class="form-group" style="margin-bottom: 0; flex: 1;">
           <label class="form-label">Date</label>
-          <input type="date" id="blocked_date" class="form-control" required min="${minDate}">
+          <input type="date" id="bd-date" class="form-control" min="${todayStr}">
         </div>
-        <div class="form-group" style="margin:0; flex:2; min-width:250px;">
-          <label class="form-label">Reason (Optional)</label>
-          <input type="text" id="reason" class="form-control" placeholder="e.g. Vacation, Conference...">
+        <div class="form-group" style="margin-bottom: 0; flex: 2;">
+          <label class="form-label">Reason</label>
+          <input type="text" id="bd-reason" class="form-control" placeholder="e.g. Faculty Development Workshop">
         </div>
-        <button type="submit" class="btn btn-primary" style="height:42px;">Block Date</button>
-      </form>
+        <button id="btn-block-date" class="btn btn-primary">Block Date</button>
+      </div>
     </div>
 
-    <div class="card">
-      <h3 style="margin-bottom:1rem;">Upcoming Blocked Dates</h3>
-      ${!blockedDates.length ? renderEmpty('🏖️', 'No blocked dates', 'Your schedule is fully open according to your office hours.') : `
-        <div class="table-container">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Reason</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${blockedDates.sort((a,b)=>new Date(a.blocked_date)-new Date(b.blocked_date)).map(bd => `
-                <tr>
-                  <td>${new Date(bd.blocked_date).toLocaleDateString('en-IN', { dateStyle: 'medium' })}</td>
-                  <td>${bd.reason || '-'}</td>
-                  <td>
-                    <button class="btn btn-ghost btn-delete" data-id="${bd.id}" style="color:var(--status-cancelled)">Unblock</button>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      `}
+    <div>
+      <h3>Blocked Dates</h3>
+      ${datesHTML}
     </div>
   `;
 
-  container.innerHTML = renderPage('Blocked Dates', 'Faculty', content);
+  container.innerHTML = renderPage('Blocked Dates', 'Faculty / Blocked Dates', content);
 
-  document.getElementById('block-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const payload = {
-      blocked_date: document.getElementById('blocked_date').value,
-      reason: document.getElementById('reason').value
-    };
+  container.querySelector('#btn-block-date').addEventListener('click', () => {
+    const date = container.querySelector('#bd-date').value;
+    const reason = container.querySelector('#bd-reason').value;
+    const errDiv = container.querySelector('#bd-error');
 
-    const btn = e.target.querySelector('button');
-    btn.disabled = true;
-    
-    const ohRes = await api.post('/blocked-dates', payload);
-    if (ohRes.success) {
-      showToast('Date blocked successfully');
-      render(container);
-    } else {
-      showToast(ohRes.error, 'error');
-      btn.disabled = false;
+    errDiv.style.display = 'none';
+
+    if (!date) {
+      errDiv.textContent = 'Date is required.';
+      errDiv.style.display = 'block';
+      return;
     }
+
+    if (date < todayStr) {
+      errDiv.textContent = 'Date must be today or in the future.';
+      errDiv.style.display = 'block';
+      return;
+    }
+
+    saveBlockedDate({
+      facultyId: user.id,
+      date,
+      reason
+    });
+
+    showToast('Date blocked!', 'success');
+    render(container);
   });
 
-  document.querySelectorAll('.btn-delete').forEach(btn => {
+  container.querySelectorAll('.btn-delete').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const id = e.target.dataset.id;
-      showModal('Unblock Date', 'Are you sure you want to unblock this date? Students will be able to book slots again.', async () => {
-        const delRes = await api.delete(`/blocked-dates/${id}`);
-        if (delRes.success) {
-          showToast('Date unblocked');
-          render(container);
-        } else {
-          showToast(delRes.error, 'error');
-        }
-      });
+      const id = e.target.getAttribute('data-id');
+      deleteBlockedDate(id);
+      showToast('Removed', 'success');
+      render(container);
     });
   });
 }

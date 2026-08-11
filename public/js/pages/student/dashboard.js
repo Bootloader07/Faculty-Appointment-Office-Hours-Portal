@@ -1,133 +1,154 @@
-import { api } from '../../api.js';
-import { renderSpinner, renderPage, renderBadge, renderEmpty } from '../../components/shared.js';
+import { getUsers, getUserById, getAppointmentsByStudent, saveAppointment, updateAppointmentStatus, addNotification, getAvailableSlots, fmtDateTime, fmtDate, fmtTime } from '../../data/store.js';
+import { renderBadge, renderEmpty, renderPage, showToast, showModal } from '../../components/shared.js';
 
-// ── Auth guard ─────────────────────────────────────────────────
-function getAuthenticatedUser() {
+function getUser() {
   try {
-    const user = JSON.parse(localStorage.getItem('currentUser'));
-    if (!user || user.role !== 'student') {
-      window.location.hash = '#/login';
-      return null;
-    }
-    return user;
-  } catch {
-    window.location.hash = '#/login';
-    return null;
-  }
+    const u = JSON.parse(localStorage.getItem('currentUser'));
+    if (!u || u.role !== 'student') { window.location.hash = '#/login'; return null; }
+    return u;
+  } catch { window.location.hash = '#/login'; return null; }
 }
 
-export async function render(container) {
-  const user = getAuthenticatedUser();
+export function render(container) {
+  const user = getUser();
   if (!user) return;
 
-  container.innerHTML = renderSpinner();
+  const apts = getAppointmentsByStudent(user.id);
+  const now = new Date();
 
-  // Fetch appointments from server; fall back to empty array gracefully
-  const res = await api.get('/appointments');
-  const appointments = (res.success ? res.data : null) || [];
+  const upcomingConfirmed = apts.filter(a => a.status === 'confirmed' && new Date(a.slotDatetime) > now).sort((a, b) => new Date(a.slotDatetime) - new Date(b.slotDatetime));
+  const pendingApts = apts.filter(a => a.status === 'pending').sort((a, b) => new Date(a.slotDatetime) - new Date(b.slotDatetime));
+  const pastApts = apts.filter(a => new Date(a.slotDatetime) < now && (a.status === 'confirmed' || a.status === 'no_show')).sort((a, b) => new Date(b.slotDatetime) - new Date(a.slotDatetime));
 
-  const now   = new Date();
-  const total  = appointments.length;
-  const confirmed = appointments.filter(a => a.status === 'confirmed');
-  const pending   = appointments.filter(a => a.status === 'pending');
-  const cancelled = appointments.filter(a => a.status === 'cancelled');
+  const content = document.createElement('div');
+  content.className = 'dashboard-container';
 
-  const upcomingConfirmed = confirmed
-    .filter(a => new Date(a.slot_datetime) > now)
-    .sort((a, b) => new Date(a.slot_datetime) - new Date(b.slot_datetime))
-    .slice(0, 5);
+  content.innerHTML = `
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+      <div class="card" style="padding: 1.5rem; text-align: center;">
+        <div style="font-size: 2rem; font-weight: bold; color: var(--primary);">${upcomingConfirmed.length}</div>
+        <div class="text-2">Upcoming Appointments</div>
+      </div>
+      <div class="card" style="padding: 1.5rem; text-align: center;">
+        <div style="font-size: 2rem; font-weight: bold; color: var(--warning, #f59e0b);">${pendingApts.length}</div>
+        <div class="text-2">Pending Requests</div>
+      </div>
+      <div class="card" style="padding: 1.5rem; text-align: center;">
+        <div style="font-size: 2rem; font-weight: bold; color: var(--success, #10b981);">${pastApts.length}</div>
+        <div class="text-2">Past Appointments</div>
+      </div>
+    </div>
 
-  const pendingRequests = pending
-    .sort((a, b) => new Date(a.slot_datetime) - new Date(b.slot_datetime));
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+      <h2>My Upcoming Appointments</h2>
+      <button class="btn btn-primary" id="btn-browse-faculty">Browse Faculty & Book Appointment</button>
+    </div>
+    <div id="upcoming-list" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 2rem;"></div>
 
-  const fmt = dt =>
-    new Date(dt).toLocaleString('en-IN', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-      timeZone: 'Asia/Kolkata',
+    <h2 style="margin-bottom: 1rem;">My Pending Requests</h2>
+    <div id="pending-list" style="display: flex; flex-direction: column; gap: 1rem;"></div>
+  `;
+
+  // Render upcoming
+  const upcomingContainer = content.querySelector('#upcoming-list');
+  if (upcomingConfirmed.length === 0) {
+    upcomingContainer.innerHTML = renderEmpty('calendar', 'No upcoming appointments', 'You have no confirmed appointments coming up.');
+    const emptyBtn = document.createElement('button');
+    emptyBtn.className = 'btn btn-primary';
+    emptyBtn.style.marginTop = '1rem';
+    emptyBtn.textContent = 'Browse Faculty & Book Appointment';
+    emptyBtn.onclick = () => window.location.hash = '#/student/faculty';
+    upcomingContainer.querySelector('.empty-state').appendChild(emptyBtn);
+  } else {
+    upcomingConfirmed.forEach(a => {
+      const faculty = getUserById(a.facultyId);
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style.display = 'flex';
+      card.style.justifyContent = 'space-between';
+      card.style.alignItems = 'center';
+      card.style.padding = '1.5rem';
+
+      const isCancelable = new Date(a.slotDatetime) > new Date(now.getTime() + 3600000);
+      
+      card.innerHTML = `
+        <div>
+          <h3 style="margin: 0 0 0.5rem 0;">${faculty ? faculty.name : 'Unknown Faculty'}</h3>
+          <div class="text-2" style="margin-bottom: 0.5rem;">🗓 ${fmtDateTime(a.slotDatetime)}</div>
+          <div class="text-2" style="margin-bottom: 0.5rem;">📝 ${a.reason}</div>
+          ${renderBadge(a.status)}
+        </div>
+        <div>
+          ${isCancelable ? `<button class="btn btn-outline cancel-btn" data-id="${a.id}" data-fid="${a.facultyId}" data-dt="${a.slotDatetime}">Cancel</button>` : ''}
+        </div>
+      `;
+      upcomingContainer.appendChild(card);
     });
+  }
 
-  const appointmentCard = apt => `
-    <div class="card" style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center; gap:1rem;">
-      <div>
-        <div style="font-weight:600; font-size:var(--text-lg); margin-bottom:0.25rem;">
-          ${apt.faculty_name || 'Faculty'}
-        </div>
-        <div style="color:var(--text-2); font-size:var(--text-sm);">
-          📅 ${fmt(apt.slot_datetime)} · ${apt.duration} min
-        </div>
-        ${apt.reason ? `<div style="color:var(--text-3); font-size:var(--text-xs); margin-top:0.25rem;">${apt.reason}</div>` : ''}
-      </div>
-      <div style="flex-shrink:0;">
-        ${renderBadge(apt.status)}
-      </div>
-    </div>
-  `;
+  // Render pending
+  const pendingContainer = content.querySelector('#pending-list');
+  if (pendingApts.length === 0) {
+    pendingContainer.innerHTML = renderEmpty('clock', '✨ No pending requests', 'You have no pending appointment requests.');
+  } else {
+    pendingApts.forEach(a => {
+      const faculty = getUserById(a.facultyId);
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style.display = 'flex';
+      card.style.justifyContent = 'space-between';
+      card.style.alignItems = 'center';
+      card.style.padding = '1.5rem';
 
-  const content = `
-    <!-- Stats row -->
-    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1.5rem; margin-bottom:2.5rem;">
-      <div class="card stat-card">
-        <div class="icon" style="color:var(--status-confirmed);">✅</div>
+      const isCancelable = new Date(a.slotDatetime) > new Date(now.getTime() + 3600000);
+
+      card.innerHTML = `
         <div>
-          <div class="value">${upcomingConfirmed.length}</div>
-          <div class="label">Upcoming Appointments</div>
+          <h3 style="margin: 0 0 0.5rem 0;">${faculty ? faculty.name : 'Unknown Faculty'}</h3>
+          <div class="text-2" style="margin-bottom: 0.5rem;">🗓 ${fmtDateTime(a.slotDatetime)}</div>
+          <div class="text-2" style="margin-bottom: 0.5rem;">📝 ${a.reason}</div>
+          ${renderBadge(a.status)}
         </div>
-      </div>
-      <div class="card stat-card">
-        <div class="icon" style="color:var(--status-pending);">⏳</div>
         <div>
-          <div class="value">${pending.length}</div>
-          <div class="label">Pending Requests</div>
+          ${isCancelable ? `<button class="btn btn-outline cancel-btn" data-id="${a.id}" data-fid="${a.facultyId}" data-dt="${a.slotDatetime}">Cancel Request</button>` : ''}
         </div>
-      </div>
-      <div class="card stat-card">
-        <div class="icon" style="color:var(--primary);">📅</div>
-        <div>
-          <div class="value">${total}</div>
-          <div class="label">Total Bookings</div>
-        </div>
-      </div>
-    </div>
+      `;
+      pendingContainer.appendChild(card);
+    });
+  }
 
-    <!-- Upcoming appointments -->
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-      <h2 style="font-size:var(--text-xl); margin:0;">Upcoming Appointments</h2>
-      <button class="btn btn-primary" onclick="window.location.hash='#/student/faculty'">
-        ＋ Book Appointment
-      </button>
-    </div>
+  // Event Listeners
+  content.querySelector('#btn-browse-faculty').onclick = () => window.location.hash = '#/student/faculty';
 
-    <div style="margin-bottom:2.5rem;">
-      ${upcomingConfirmed.length
-        ? upcomingConfirmed.map(appointmentCard).join('')
-        : `<div class="card" style="text-align:center; padding:2rem;">
-             <div style="font-size:2rem; margin-bottom:0.75rem;">🏖️</div>
-             <div style="color:var(--text-1); font-weight:500; margin-bottom:0.5rem;">No upcoming appointments</div>
-             <div style="color:var(--text-2); font-size:var(--text-sm); margin-bottom:1.25rem;">
-               No upcoming appointments. Book one now →
-             </div>
-             <button class="btn btn-primary" onclick="window.location.hash='#/student/faculty'">
-               Browse Faculty &amp; Book Appointment
-             </button>
-           </div>`
-      }
-    </div>
+  content.querySelectorAll('.cancel-btn').forEach(btn => {
+    btn.onclick = (e) => {
+      const id = e.target.getAttribute('data-id');
+      const fid = e.target.getAttribute('data-fid');
+      const dt = e.target.getAttribute('data-dt');
+      
+      updateAppointmentStatus(id, 'cancelled');
+      addNotification(fid, 'booking_cancelled', `Student ${user.name} cancelled their appointment on ${fmtDateTime(dt)}.`);
+      showToast('Appointment cancelled', 'success');
+      render(container); // Re-render page
+    };
+  });
 
-    <!-- Pending requests -->
-    <h2 style="font-size:var(--text-xl); margin-bottom:1rem;">Pending Requests</h2>
-    <div>
-      ${pendingRequests.length
-        ? pendingRequests.map(appointmentCard).join('')
-        : renderEmpty('✨', 'All caught up!', 'No pending requests at the moment.')
-      }
-    </div>
-  `;
+  // renderPage() returns an HTML string — use innerHTML, not appendChild
+  container.innerHTML = renderPage('Welcome, ' + user.name.split(' ')[0] + ' 👋', 'Student / Dashboard', content.outerHTML);
 
-  const firstName = user.name.split(' ')[0];
-  container.innerHTML = renderPage(
-    `Welcome, ${firstName} 👋`,
-    'Student / Dashboard',
-    content
-  );
+  // Re-wire events (innerHTML discards the DOM nodes built above)
+  container.querySelector('#btn-browse-faculty').onclick = () => window.location.hash = '#/student/faculty';
+
+  container.querySelectorAll('.cancel-btn').forEach(btn => {
+    btn.onclick = (e) => {
+      const b = e.currentTarget;
+      const id = b.getAttribute('data-id');
+      const fid = b.getAttribute('data-fid');
+      const dt = b.getAttribute('data-dt');
+      updateAppointmentStatus(id, 'cancelled');
+      addNotification(fid, 'booking_cancelled', 'Student ' + user.name + ' cancelled their appointment on ' + fmtDateTime(dt) + '.');
+      showToast('Appointment cancelled', 'success');
+      render(container);
+    };
+  });
 }

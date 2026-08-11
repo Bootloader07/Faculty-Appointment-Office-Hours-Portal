@@ -1,134 +1,213 @@
-import { api } from '../../api.js';
-import { renderSpinner, renderPage, renderEmpty, showToast } from '../../components/shared.js';
+import { getUsers, getUserById, getAppointmentsByStudent, saveAppointment, updateAppointmentStatus, addNotification, getAvailableSlots, fmtDateTime, fmtDate, fmtTime } from '../../data/store.js';
+import { renderBadge, renderEmpty, renderPage, showToast, showModal } from '../../components/shared.js';
 
-export async function render(container, facultyId) {
-  container.innerHTML = renderSpinner();
+function getUser() {
+  try {
+    const u = JSON.parse(localStorage.getItem('currentUser'));
+    if (!u || u.role !== 'student') { window.location.hash = '#/login'; return null; }
+    return u;
+  } catch { window.location.hash = '#/login'; return null; }
+}
 
-  const [facRes, availRes] = await Promise.all([
-    api.get(`/faculty/${facultyId}`),
-    api.get(`/availability/${facultyId}`)
-  ]);
+let selectedDate = null;
+let selectedSlot = null;
 
-  if (!facRes.success || !availRes.success) {
-    container.innerHTML = renderPage('Book Appointment', 'Student / Faculty', `<div class="card"><p>Error loading data.</p></div>`);
+export function render(container, facultyId) {
+  const user = getUser();
+  if (!user) return;
+
+  // Reset state on new page render
+  selectedDate = null;
+  selectedSlot = null;
+
+  const content = document.createElement('div');
+  
+  if (!facultyId) {
+    content.innerHTML = `
+      <div class="card" style="padding: 2rem; text-align: center;">
+        <h3 style="color: var(--error);">No faculty selected</h3>
+        <button class="btn btn-primary" onclick="window.location.hash='#/student/faculty'" style="margin-top: 1rem;">Go Back</button>
+      </div>
+    `;
+    container.innerHTML = '';
+    container.appendChild(renderPage('Book Appointment', 'Student / Book Appointment', content));
     return;
   }
 
-  const faculty = facRes.data;
-  const slots = availRes.data || [];
+  const faculty = getUserById(facultyId);
+  if (!faculty) {
+    content.innerHTML = `
+      <div class="card" style="padding: 2rem; text-align: center;">
+        <h3 style="color: var(--error);">Faculty not found</h3>
+        <button class="btn btn-primary" onclick="window.location.hash='#/student/faculty'" style="margin-top: 1rem;">Go Back</button>
+      </div>
+    `;
+    container.innerHTML = '';
+    container.appendChild(renderPage('Book Appointment', 'Student / Book Appointment', content));
+    return;
+  }
 
-  // Group slots by date
-  const grouped = {};
-  slots.forEach(slot => {
-    const d = new Date(slot.datetime);
-    const dateKey = d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
-    if (!grouped[dateKey]) grouped[dateKey] = [];
-    grouped[dateKey].push(slot);
+  const slots = getAvailableSlots(facultyId, 14);
+  
+  if (slots.length === 0) {
+    content.innerHTML = `
+      <div class="card" style="padding: 2rem; display: flex; align-items: center; gap: 1.5rem; margin-bottom: 2rem;">
+        <div style="width: 64px; height: 64px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold;">
+          ${faculty.name.charAt(0).toUpperCase()}
+        </div>
+        <div>
+          <h2 style="margin: 0 0 0.25rem 0;">${faculty.name}</h2>
+          <div class="text-2">${faculty.department || 'General Department'}</div>
+        </div>
+      </div>
+      <div class="card" style="padding: 3rem 1rem;">
+        ${renderEmpty('calendar', 'No slots available', 'This faculty has no available slots in the next 14 days.')}
+        <div style="text-align: center; margin-top: 1.5rem;">
+          <button class="btn btn-outline" onclick="window.location.hash='#/student/faculty'">Browse Other Faculty</button>
+        </div>
+      </div>
+    `;
+    container.innerHTML = '';
+    container.appendChild(renderPage('Book Appointment', 'Student / Book Appointment', content));
+    return;
+  }
+
+  const slotsByDate = {};
+  slots.forEach(s => {
+    if (!slotsByDate[s.dateKey]) slotsByDate[s.dateKey] = [];
+    slotsByDate[s.dateKey].push(s);
   });
 
-  const initials = faculty.name.split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase();
+  const availableDates = Object.keys(slotsByDate).sort();
 
-  let selectedSlot = null;
-
-  const content = `
-    <div class="card" style="margin-bottom:2rem; display:flex; align-items:center; gap:1.5rem;">
-      <div style="width:64px; height:64px; border-radius:50%; background:var(--primary-glow); border:1px solid var(--primary); display:flex; align-items:center; justify-content:center; font-size:1.5rem; font-weight:bold; color:var(--primary);">
-        ${initials}
+  content.innerHTML = `
+    <div class="card" style="padding: 2rem; display: flex; align-items: center; gap: 1.5rem; margin-bottom: 2rem;">
+      <div style="width: 64px; height: 64px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold;">
+        ${faculty.name.charAt(0).toUpperCase()}
       </div>
       <div>
-        <h2 style="font-size:var(--text-2xl)">${faculty.name}</h2>
-        <div style="color:var(--text-2)">${faculty.department}</div>
+        <h2 style="margin: 0 0 0.25rem 0;">${faculty.name}</h2>
+        <div class="text-2">${faculty.department || 'General Department'}</div>
       </div>
     </div>
 
-    <h3 style="margin-bottom:1rem;">Available Slots</h3>
-    ${slots.length === 0 ? renderEmpty('📅', 'No slots available', 'There are no available slots in the next 14 days.') : ''}
-    
-    <div id="slot-selection-area">
-      ${Object.keys(grouped).map(dateKey => `
-        <div style="margin-bottom:1.5rem;">
-          <h4 style="color:var(--text-2); margin-bottom:0.5rem;">${dateKey}</h4>
-          <div class="slot-grid">
-            ${grouped[dateKey].map((slot, idx) => {
-              const timeStr = new Date(slot.datetime).toLocaleTimeString('en-IN', { hour: '2-digit', minute:'2-digit' });
-              return `<div class="slot-pill" data-datetime="${slot.datetime}" data-duration="${slot.duration}">${timeStr}</div>`;
-            }).join('')}
-          </div>
-        </div>
-      `).join('')}
-    </div>
+    <div class="card" style="padding: 2rem;">
+      <h3 style="margin-top: 0;">1. Select Date</h3>
+      <div id="date-picker" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 2rem;"></div>
 
-    <div id="booking-form-area" class="card" style="display:none; margin-top:2rem;">
-      <h3 style="margin-bottom:1rem;">Confirm Booking</h3>
-      <div style="margin-bottom:1rem; color:var(--primary); font-weight:600;" id="selected-slot-display"></div>
-      <div class="form-group">
-        <label class="form-label">Reason for meeting</label>
-        <textarea id="booking-reason" class="form-control" required placeholder="Briefly describe what you'd like to discuss..."></textarea>
+      <div id="time-section" style="display: none; margin-bottom: 2rem;">
+        <h3>2. Select Time</h3>
+        <div id="time-picker" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.5rem;"></div>
       </div>
-      <div style="display:flex; gap:1rem; justify-content:flex-end">
-        <button class="btn btn-ghost" id="cancel-booking">Cancel</button>
-        <button class="btn btn-primary" id="confirm-booking">Book Appointment</button>
+
+      <div id="form-section" style="display: none;">
+        <h3>3. Reason for Appointment</h3>
+        <textarea id="reason-input" class="input" rows="4" placeholder="Briefly describe what you'd like to discuss (min 10 characters)..." style="width: 100%; margin-bottom: 1rem; border-radius: 4px; padding: 0.75rem; border: 1px solid var(--border);"></textarea>
+        <div id="form-error" style="color: var(--error); margin-bottom: 1rem; display: none;"></div>
+        <div id="form-success" style="color: var(--success, #10b981); margin-bottom: 1rem; display: none; font-weight: bold;"></div>
+        <button id="btn-submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">Submit Booking Request</button>
       </div>
     </div>
   `;
 
-  container.innerHTML = renderPage('Book Appointment', `Student / Faculty / ${faculty.name}`, content);
+  const datePicker = content.querySelector('#date-picker');
+  const timeSection = content.querySelector('#time-section');
+  const timePicker = content.querySelector('#time-picker');
+  const formSection = content.querySelector('#form-section');
+  const reasonInput = content.querySelector('#reason-input');
+  const formError = content.querySelector('#form-error');
+  const formSuccess = content.querySelector('#form-success');
+  const btnSubmit = content.querySelector('#btn-submit');
 
-  if (slots.length > 0) {
-    const pills = document.querySelectorAll('.slot-pill');
-    pills.forEach(pill => {
-      pill.addEventListener('click', (e) => {
-        pills.forEach(p => p.classList.remove('selected'));
-        pill.classList.add('selected');
-        
-        selectedSlot = {
-          datetime: pill.dataset.datetime,
-          duration: parseInt(pill.dataset.duration, 10)
-        };
-
-        const formArea = document.getElementById('booking-form-area');
-        formArea.style.display = 'block';
-        
-        const dt = new Date(selectedSlot.datetime);
-        document.getElementById('selected-slot-display').textContent = dt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' }) + ` (${selectedSlot.duration} min)`;
-        
-        // Scroll to form
-        formArea.scrollIntoView({ behavior: 'smooth' });
-      });
-    });
-
-    document.getElementById('cancel-booking').addEventListener('click', () => {
-      document.getElementById('booking-form-area').style.display = 'none';
-      pills.forEach(p => p.classList.remove('selected'));
-      selectedSlot = null;
-    });
-
-    document.getElementById('confirm-booking').addEventListener('click', async () => {
-      const reason = document.getElementById('booking-reason').value.trim();
-      if (!reason) {
-        showToast('Please provide a reason', 'error');
-        return;
-      }
-      
-      const btn = document.getElementById('confirm-booking');
-      btn.textContent = 'Booking...';
-      btn.disabled = true;
-
-      const res = await api.post('/appointments', {
-        faculty_id: facultyId,
-        slot_datetime: selectedSlot.datetime,
-        duration: selectedSlot.duration,
-        reason: reason
-      });
-
-      if (res.success) {
-        showToast('Appointment requested successfully!');
-        window.location.hash = '#/student/appointments';
-      } else {
-        showToast(res.error, 'error');
-        btn.textContent = 'Book Appointment';
-        btn.disabled = false;
-      }
+  function renderDateSelector() {
+    datePicker.innerHTML = '';
+    availableDates.forEach(dateKey => {
+      const btn = document.createElement('button');
+      const isSelected = selectedDate === dateKey;
+      btn.className = `btn ${isSelected ? 'btn-primary' : 'btn-outline'}`;
+      btn.textContent = fmtDate(dateKey + 'T00:00:00');
+      btn.onclick = () => {
+        selectedDate = dateKey;
+        selectedSlot = null; // Reset time when date changes
+        renderDateSelector();
+        renderSlotPicker();
+      };
+      datePicker.appendChild(btn);
     });
   }
+
+  function renderSlotPicker() {
+    if (!selectedDate) {
+      timeSection.style.display = 'none';
+      formSection.style.display = 'none';
+      return;
+    }
+    
+    timeSection.style.display = 'block';
+    timePicker.innerHTML = '';
+    
+    const daySlots = slotsByDate[selectedDate];
+    daySlots.forEach(slot => {
+      const btn = document.createElement('button');
+      const isSelected = selectedSlot && selectedSlot.slotId === slot.slotId;
+      btn.className = `btn ${isSelected ? 'btn-primary' : 'btn-outline'}`;
+      btn.textContent = slot.timeLabel;
+      btn.onclick = () => {
+        selectedSlot = slot;
+        renderSlotPicker(); // update time selection UI
+        formSection.style.display = 'block';
+      };
+      timePicker.appendChild(btn);
+    });
+  }
+
+  btnSubmit.onclick = () => {
+    formError.style.display = 'none';
+    formSuccess.style.display = 'none';
+    const reason = reasonInput.value.trim();
+
+    if (!selectedSlot) {
+      formError.textContent = 'Please select a time slot.';
+      formError.style.display = 'block';
+      return;
+    }
+
+    if (reason.length < 10) {
+      formError.textContent = 'Please provide a reason of at least 10 characters.';
+      formError.style.display = 'block';
+      return;
+    }
+
+    btnSubmit.disabled = true;
+    
+    saveAppointment({
+      studentId: user.id,
+      facultyId: facultyId,
+      slotDatetime: selectedSlot.datetime,
+      duration: selectedSlot.duration,
+      reason: reason,
+      status: 'pending'
+    });
+
+    addNotification(
+      facultyId, 
+      'booking_request', 
+      `New appointment request from ${user.name} on ${fmtDateTime(selectedSlot.datetime)}. Reason: ${reason}`
+    );
+
+    formSuccess.textContent = 'Booking request sent! Awaiting faculty approval.';
+    formSuccess.style.display = 'block';
+    formSection.style.display = 'block'; // ensure it stays visible
+    timeSection.style.display = 'none';
+    datePicker.style.display = 'none';
+
+    setTimeout(() => {
+      window.location.hash = '#/student/appointments';
+    }, 2000);
+  };
+
+  renderDateSelector();
+
+  container.innerHTML = '';
+  container.appendChild(renderPage('Book Appointment', 'Student / Book Appointment', content));
 }

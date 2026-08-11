@@ -3,10 +3,19 @@
 
 const LS_KEY = 'currentUser';
 
+const VALID_ROLES = ['admin', 'faculty', 'student'];
+
 function loadFromStorage() {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const user = JSON.parse(raw);
+    // Discard stale/corrupt entries that have no valid role
+    if (!user || !VALID_ROLES.includes(user.role)) {
+      localStorage.removeItem(LS_KEY);
+      return null;
+    }
+    return user;
   } catch { return null; }
 }
 

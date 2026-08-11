@@ -1,131 +1,148 @@
-import { api } from '../../api.js';
-import { renderSpinner, renderPage, renderEmpty, showModal, showToast } from '../../components/shared.js';
+import {
+  getOfficeHoursByFaculty,
+  saveOfficeHours,
+  deleteOfficeHours
+} from '../../data/store.js';
+import {
+  renderEmpty,
+  renderPage,
+  showToast
+} from '../../components/shared.js';
 
-export async function render(container) {
-  container.innerHTML = renderSpinner();
+function getUser() {
+  try {
+    const u = JSON.parse(localStorage.getItem('currentUser'));
+    if (!u || u.role !== 'faculty') {
+      window.location.hash = '#/login';
+      return null;
+    }
+    return u;
+  } catch {
+    window.location.hash = '#/login';
+    return null;
+  }
+}
 
-  const res = await api.get('/office-hours');
-  if (!res.success) {
-    container.innerHTML = renderPage('Office Hours', 'Faculty', `<div class="card"><p>Error loading office hours.</p></div>`);
-    return;
+function fmtHHMM(t) {
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return h12 + ':' + String(m).padStart(2, '0') + ' ' + ampm;
+}
+
+const DAY_ORDER = {Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6};
+
+export function render(container) {
+  const user = getUser();
+  if (!user) return;
+
+  const oh = getOfficeHoursByFaculty(user.id);
+  oh.sort((a, b) => DAY_ORDER[a.dayOfWeek] - DAY_ORDER[b.dayOfWeek]);
+
+  let ohHTML = '';
+  if (oh.length === 0) {
+    ohHTML = renderEmpty('Calendar', 'No office hours set', 'Add your availability above.');
+  } else {
+    ohHTML = oh.map(o => `
+      <div class="card" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <strong>${o.dayOfWeek}</strong> · ${fmtHHMM(o.startTime)} – ${fmtHHMM(o.endTime)} · ${o.slotDuration} min slots
+        </div>
+        <button class="btn btn-danger btn-delete" data-id="${o.id}">🗑️ Delete</button>
+      </div>
+    `).join('');
   }
 
-  const officeHours = res.data || [];
-
-  const daysOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const daysMap = {
-    'Mon': 'Monday', 'Tue': 'Tuesday', 'Wed': 'Wednesday', 'Thu': 'Thursday', 'Fri': 'Friday', 'Sat': 'Saturday', 'Sun': 'Sunday'
-  };
-
   const content = `
-    <div class="card" style="margin-bottom:2rem;">
-      <h3 style="margin-bottom:1rem;">Add Office Hours</h3>
-      <form id="oh-form" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:1rem; align-items:end;">
-        <div class="form-group" style="margin:0;">
+    <div class="card" style="margin-bottom: 2rem;">
+      <h3>Add Office Hours</h3>
+      <div id="oh-error" style="color: #ef4444; margin-bottom: 1rem; display: none;"></div>
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; align-items: end;">
+        <div class="form-group" style="margin-bottom: 0;">
           <label class="form-label">Day of Week</label>
-          <select id="day_of_week" class="form-control" required>
+          <select id="oh-day" class="form-control">
             <option value="Mon">Monday</option>
             <option value="Tue">Tuesday</option>
             <option value="Wed">Wednesday</option>
             <option value="Thu">Thursday</option>
             <option value="Fri">Friday</option>
             <option value="Sat">Saturday</option>
-            <option value="Sun">Sunday</option>
           </select>
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group" style="margin-bottom: 0;">
           <label class="form-label">Start Time</label>
-          <input type="time" id="start_time" class="form-control" required>
+          <input type="time" id="oh-start" class="form-control">
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group" style="margin-bottom: 0;">
           <label class="form-label">End Time</label>
-          <input type="time" id="end_time" class="form-control" required>
+          <input type="time" id="oh-end" class="form-control">
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group" style="margin-bottom: 0;">
           <label class="form-label">Slot Duration</label>
-          <select id="slot_duration" class="form-control" required>
-            <option value="15">15 min</option>
-            <option value="30" selected>30 min</option>
-            <option value="45">45 min</option>
-            <option value="60">60 min</option>
+          <select id="oh-duration" class="form-control">
+            <option value="30">30 minutes</option>
+            <option value="60">60 minutes</option>
           </select>
         </div>
-        <button type="submit" class="btn btn-primary" style="height:42px;">Add</button>
-      </form>
+      </div>
+      <button id="btn-add-oh" class="btn btn-primary" style="margin-top: 1rem;">Add Office Hours</button>
     </div>
 
-    <div class="card">
-      <h3 style="margin-bottom:1rem;">Current Office Hours</h3>
-      ${!officeHours.length ? renderEmpty('🕒', 'No office hours set', 'Add your availability above.') : `
-        <div class="table-container">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Day</th>
-                <th>Time</th>
-                <th>Duration</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${officeHours.sort((a,b)=>daysOrder.indexOf(a.day_of_week) - daysOrder.indexOf(b.day_of_week)).map(oh => `
-                <tr>
-                  <td>${daysMap[oh.day_of_week] || oh.day_of_week}</td>
-                  <td>${oh.start_time} - ${oh.end_time}</td>
-                  <td>${oh.slot_duration} min</td>
-                  <td>
-                    <button class="btn btn-ghost btn-delete" data-id="${oh.id}" style="color:var(--status-cancelled)">🗑️</button>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      `}
+    <div>
+      <h3>Your Office Hours</h3>
+      ${ohHTML}
     </div>
   `;
 
-  container.innerHTML = renderPage('Office Hours', 'Faculty', content);
+  container.innerHTML = renderPage('Office Hours', 'Faculty / Office Hours', content);
 
-  document.getElementById('oh-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const payload = {
-      day_of_week: document.getElementById('day_of_week').value,
-      start_time: document.getElementById('start_time').value,
-      end_time: document.getElementById('end_time').value,
-      slot_duration: parseInt(document.getElementById('slot_duration').value, 10)
-    };
+  container.querySelector('#btn-add-oh').addEventListener('click', () => {
+    const day = container.querySelector('#oh-day').value;
+    const start = container.querySelector('#oh-start').value;
+    const end = container.querySelector('#oh-end').value;
+    const duration = container.querySelector('#oh-duration').value;
+    const errDiv = container.querySelector('#oh-error');
 
-    if (payload.start_time >= payload.end_time) {
-      showToast('Start time must be before end time', 'error');
+    errDiv.style.display = 'none';
+
+    if (!day || !start || !end || !duration) {
+      errDiv.textContent = 'All fields are required.';
+      errDiv.style.display = 'block';
       return;
     }
 
-    const btn = e.target.querySelector('button');
-    btn.disabled = true;
-    
-    const ohRes = await api.post('/office-hours', payload);
-    if (ohRes.success) {
-      showToast('Office hours added');
-      render(container);
-    } else {
-      showToast(ohRes.error, 'error');
-      btn.disabled = false;
+    if (start >= end) {
+      errDiv.textContent = 'End time must be after start time.';
+      errDiv.style.display = 'block';
+      return;
     }
+
+    const existing = oh.find(o => o.dayOfWeek === day);
+    if (existing) {
+      errDiv.textContent = 'You already have office hours set for this day.';
+      errDiv.style.display = 'block';
+      return;
+    }
+
+    saveOfficeHours({
+      facultyId: user.id,
+      dayOfWeek: day,
+      startTime: start,
+      endTime: end,
+      slotDuration: parseInt(duration, 10),
+      isRecurring: true
+    });
+
+    showToast('Office hours added!', 'success');
+    render(container);
   });
 
-  document.querySelectorAll('.btn-delete').forEach(btn => {
+  container.querySelectorAll('.btn-delete').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const id = e.target.dataset.id;
-      showModal('Delete Office Hours', 'Are you sure you want to remove this slot block?', async () => {
-        const delRes = await api.delete(`/office-hours/${id}`);
-        if (delRes.success) {
-          showToast('Deleted');
-          render(container);
-        } else {
-          showToast(delRes.error, 'error');
-        }
-      });
+      const id = e.target.getAttribute('data-id');
+      deleteOfficeHours(id);
+      showToast('Deleted', 'success');
+      render(container);
     });
   });
 }

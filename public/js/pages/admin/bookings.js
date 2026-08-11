@@ -1,125 +1,115 @@
-import { api } from '../../api.js';
-import { renderSpinner, renderPage, renderBadge, renderEmpty, showModal, showToast } from '../../components/shared.js';
+import { getAppointments, getUserById, updateAppointmentStatus, fmtDateTime } from '../../data/store.js';
+import { renderBadge, renderEmpty, renderPage, showToast } from '../../components/shared.js';
 
-export async function render(container) {
-  container.innerHTML = renderSpinner();
+function getUser(role) {
+  try {
+    const u = JSON.parse(localStorage.getItem('currentUser'));
+    if (!u || u.role !== role) { window.location.hash = '#/login'; return null; }
+    return u;
+  } catch { window.location.hash = '#/login'; return null; }
+}
 
-  const res = await api.get('/appointments');
-  if (!res.success) {
-    container.innerHTML = renderPage('All Bookings', 'Admin', `<div class="card"><p>Error loading bookings.</p></div>`);
-    return;
-  }
+let currentFilter = 'all';
 
-  const appointments = res.data || [];
-  let filtered = [...appointments].sort((a,b)=>new Date(b.slot_datetime)-new Date(a.slot_datetime));
+export function render(container) {
+  if (!getUser('admin')) return;
 
-  const formatDateTime = (dt) => new Date(dt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
-
-  const renderTable = (list) => {
-    if (!list.length) return renderEmpty('📅', 'No bookings found', '');
-    return `
-      <div class="table-container">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Date / Time</th>
-              <th>Student</th>
-              <th>Faculty</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${list.map(a => `
-              <tr>
-                <td>
-                  <div style="font-weight:500">${formatDateTime(a.slot_datetime)}</div>
-                  <div style="font-size:var(--text-xs); color:var(--text-2)">${a.duration} min</div>
-                </td>
-                <td>${a.student_name}</td>
-                <td>${a.faculty_name}</td>
-                <td>${renderBadge(a.status)}</td>
-                <td>
-                  ${(a.status === 'pending' || a.status === 'confirmed') ? 
-                    `<button class="btn btn-ghost btn-cancel" data-id="${a.id}" style="color:var(--status-cancelled); padding:0.25rem 0.5rem; font-size:var(--text-xs);">Force Cancel</button>` 
-                  : '-'}
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    `;
+  const allAppointments = getAppointments();
+  
+  const stats = {
+    total: allAppointments.length,
+    pending: allAppointments.filter(a => a.status === 'pending').length,
+    confirmed: allAppointments.filter(a => a.status === 'confirmed').length,
+    cancelled: allAppointments.filter(a => a.status === 'cancelled').length,
+    no_show: allAppointments.filter(a => a.status === 'no_show').length,
   };
 
+  const filteredAppts = currentFilter === 'all' 
+    ? allAppointments 
+    : allAppointments.filter(a => a.status === currentFilter);
+
+  const filters = [
+    { id: 'all', label: 'All' },
+    { id: 'pending', label: 'Pending' },
+    { id: 'confirmed', label: 'Confirmed' },
+    { id: 'cancelled', label: 'Cancelled' },
+    { id: 'no_show', label: 'No Show' }
+  ];
+
   const content = `
-    <div class="card" style="margin-bottom:2rem; display:flex; gap:1rem; align-items:center; justify-content:space-between; flex-wrap:wrap;">
-      <div style="display:flex; gap:0.5rem; overflow-x:auto;">
-        <button class="btn btn-primary filter-btn" data-status="all">All</button>
-        <button class="btn btn-ghost filter-btn" data-status="pending">Pending</button>
-        <button class="btn btn-ghost filter-btn" data-status="confirmed">Confirmed</button>
-        <button class="btn btn-ghost filter-btn" data-status="cancelled">Cancelled</button>
-        <button class="btn btn-ghost filter-btn" data-status="no-show">No-Show</button>
-      </div>
-      <input type="text" id="booking-search" class="input-search" placeholder="Search by name..." style="max-width:300px;">
+    <div style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
+      ${filters.map(f => `
+        <div class="stat-card card" style="flex: 1; min-width: 120px;">
+          <div class="label">${f.label}</div>
+          <div class="value">${f.id === 'all' ? stats.total : stats[f.id] || 0}</div>
+        </div>
+      `).join('')}
     </div>
-    <div class="card">
-      <div id="bookings-table">
-        ${renderTable(filtered)}
+
+    <div class="card" style="margin-bottom: 1rem;">
+      <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+        ${filters.map(f => `
+          <button class="btn filter-btn ${currentFilter === f.id ? 'btn-primary' : 'btn-outline'}" data-filter="${f.id}">
+            ${f.label}
+          </button>
+        `).join('')}
       </div>
+
+      ${filteredAppts.length > 0 ? `
+        <div class="table-container">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Faculty</th>
+                <th>Date & Time</th>
+                <th>Reason</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredAppts.map(a => {
+                const student = getUserById(a.studentId);
+                const faculty = getUserById(a.facultyId);
+                const canCancel = a.status === 'pending' || a.status === 'confirmed';
+                return `
+                  <tr>
+                    <td>${student ? student.name : 'Unknown'}</td>
+                    <td>${faculty ? faculty.name : 'Unknown'}</td>
+                    <td>${fmtDateTime(a.slotDatetime)}</td>
+                    <td>${a.reason || '-'}</td>
+                    <td>${renderBadge(a.status)}</td>
+                    <td>
+                      ${canCancel ? `<button class="btn btn-danger btn-cancel" data-id="${a.id}" style="padding: 0.25rem 0.5rem; font-size: var(--text-xs);">Cancel</button>` : '-'}
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      ` : renderEmpty('📅', 'No bookings found', 'No appointments match the selected filter.')}
     </div>
   `;
 
-  container.innerHTML = renderPage('All Bookings', 'Admin / Bookings', content);
+  container.innerHTML = renderPage('All Bookings', 'Admin / All Bookings', content);
 
-  const updateView = () => {
-    document.getElementById('bookings-table').innerHTML = renderTable(filtered);
-    
-    document.querySelectorAll('.btn-cancel').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const id = e.target.dataset.id;
-        showModal('Admin Override: Cancel', 'Are you sure you want to forcibly cancel this booking?', async () => {
-          const cancelRes = await api.put(`/appointments/${id}/cancel`);
-          if (cancelRes.success) {
-            showToast('Booking cancelled via admin override');
-            render(container); // reload
-          } else {
-            showToast(cancelRes.error, 'error');
-          }
-        });
-      });
-    });
-  };
-
-  let currentStatus = 'all';
-  let currentSearch = '';
-
-  const applyFilters = () => {
-    filtered = appointments.filter(a => {
-      const matchStatus = currentStatus === 'all' || a.status === currentStatus;
-      const matchSearch = a.student_name.toLowerCase().includes(currentSearch) || a.faculty_name.toLowerCase().includes(currentSearch);
-      return matchStatus && matchSearch;
-    }).sort((a,b)=>new Date(b.slot_datetime)-new Date(a.slot_datetime));
-    updateView();
-  };
-
-  document.querySelectorAll('.filter-btn').forEach(btn => {
+  const filterBtns = container.querySelectorAll('.filter-btn');
+  filterBtns.forEach(btn => {
     btn.addEventListener('click', (e) => {
-      document.querySelectorAll('.filter-btn').forEach(b => {
-        b.classList.remove('btn-primary');
-        b.classList.add('btn-ghost');
-      });
-      e.target.classList.remove('btn-ghost');
-      e.target.classList.add('btn-primary');
-      currentStatus = e.target.dataset.status;
-      applyFilters();
+      currentFilter = e.target.getAttribute('data-filter');
+      render(container);
     });
   });
 
-  document.getElementById('booking-search').addEventListener('input', (e) => {
-    currentSearch = e.target.value.toLowerCase();
-    applyFilters();
+  const cancelBtns = container.querySelectorAll('.btn-cancel');
+  cancelBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const id = e.target.getAttribute('data-id');
+      updateAppointmentStatus(id, 'cancelled');
+      showToast('Booking cancelled', 'success');
+      render(container);
+    });
   });
-
-  updateView();
 }

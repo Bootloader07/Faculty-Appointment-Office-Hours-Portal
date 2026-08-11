@@ -1,82 +1,89 @@
-import { api } from '../../api.js';
-import { renderSpinner, renderPage, renderBadge, renderEmpty, showModal, showToast } from '../../components/shared.js';
+import { getAppointments, getUserById, updateAppointmentStatus, fmtDateTime } from '../../data/store.js';
+import { renderPage, showToast } from '../../components/shared.js';
 
-export async function render(container) {
-  container.innerHTML = renderSpinner();
+function getUser(role) {
+  try {
+    const u = JSON.parse(localStorage.getItem('currentUser'));
+    if (!u || u.role !== role) { window.location.hash = '#/login'; return null; }
+    return u;
+  } catch { window.location.hash = '#/login'; return null; }
+}
 
-  const res = await api.get('/admin/conflicts');
-  if (!res.success) {
-    container.innerHTML = renderPage('Conflicts', 'Admin', `<div class="card"><p>Error loading conflicts.</p></div>`);
-    return;
-  }
+export function render(container) {
+  if (!getUser('admin')) return;
 
-  const conflicts = res.data || [];
-  const formatDateTime = (dt) => new Date(dt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
+  const appointments = getAppointments();
+  const activeAppts = appointments.filter(a => a.status === 'pending' || a.status === 'confirmed');
+  
+  const grouped = activeAppts.reduce((acc, a) => {
+    const key = `${a.facultyId}_${a.slotDatetime}`;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(a);
+    return acc;
+  }, {});
+
+  const conflicts = Object.values(grouped).filter(group => group.length > 1);
 
   const content = `
-    <div style="background:rgba(239, 68, 68, 0.1); border-left:4px solid var(--status-cancelled); padding:1rem; border-radius:6px; margin-bottom:2rem; color:var(--text-1);">
-      ⚠️ Conflicts occur when multiple overlapping appointments are confirmed for the same faculty member at the same time. This view highlights these scheduling anomalies.
+    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem;">
+      <h2 style="margin: 0;">Conflict Detection</h2>
+      <span class="badge ${conflicts.length > 0 ? 'badge-cancelled' : 'badge-confirmed'}">
+        ${conflicts.length} Conflicts
+      </span>
     </div>
 
-    ${!conflicts.length ? 
-      `<div class="card" style="text-align:center; padding:4rem 2rem;">
-        <div style="font-size:3rem; margin-bottom:1rem; color:var(--status-confirmed);">✅</div>
-        <h3 style="color:var(--text-1); margin-bottom:0.5rem;">No conflicts detected</h3>
-        <p style="color:var(--text-2);">All bookings are clean and valid.</p>
-      </div>` 
-    : `
-      <div>
-        ${conflicts.map(c => `
-          <div class="card" style="margin-bottom:1.5rem; border-color:rgba(239, 68, 68, 0.3);">
-            <div style="margin-bottom:1rem; border-bottom:1px solid var(--glass-border); padding-bottom:1rem;">
-              <h3 style="color:var(--status-cancelled); margin-bottom:0.25rem;">Conflict at ${formatDateTime(c.slot_datetime)}</h3>
-              <div style="color:var(--text-2);">Faculty ID: ${c.faculty_id}</div>
-            </div>
-            
-            <div class="table-container">
-              <table class="table" style="background:rgba(0,0,0,0.2); border-radius:6px;">
-                <thead>
-                  <tr>
-                    <th>Appointment ID</th>
-                    <th>Student Name</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${c.appointments.map(a => `
-                    <tr>
-                      <td>#${a.id}</td>
-                      <td>${a.student_name}</td>
-                      <td>${renderBadge(a.status)}</td>
-                      <td>
-                        <button class="btn btn-danger btn-cancel" data-id="${a.id}" style="padding:0.25rem 0.75rem; font-size:var(--text-xs);">Cancel</button>
-                      </td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
+    <div class="card" style="margin-bottom: 2rem;">
+      <p style="margin: 0; color: var(--text-2);">
+        Conflicts occur when a faculty member has two or more pending or confirmed appointments at the exact same time.
+      </p>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 1rem;">
+      ${conflicts.length > 0 ? conflicts.map((group, index) => {
+        const faculty = getUserById(group[0].facultyId);
+        return `
+          <div class="card" style="border-left: 4px solid var(--status-cancelled);">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+              <div>
+                <h3 style="margin-top: 0; margin-bottom: 0.5rem;">${faculty ? faculty.name : 'Unknown Faculty'}</h3>
+                <div style="color: var(--text-2); margin-bottom: 1rem;">${fmtDateTime(group[0].slotDatetime)}</div>
+                
+                <h4 style="margin: 0 0 0.5rem 0; font-size: var(--text-sm);">Involved Students:</h4>
+                <ul style="margin: 0; padding-left: 1.5rem; color: var(--text-2);">
+                  ${group.map(a => {
+                    const student = getUserById(a.studentId);
+                    return `<li>${student ? student.name : 'Unknown'}</li>`;
+                  }).join('')}
+                </ul>
+              </div>
+              
+              <button class="btn btn-danger btn-resolve" data-index="${index}">Resolve: Cancel All</button>
             </div>
           </div>
-        `).join('')}
-      </div>
-    `}
+        `;
+      }).join('') : `
+        <div class="card" style="text-align: center; padding: 4rem 2rem;">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">✅</div>
+          <h3 style="color: var(--status-confirmed); margin: 0;">No scheduling conflicts detected. All schedules are clean.</h3>
+        </div>
+      `}
+    </div>
   `;
 
-  container.innerHTML = renderPage('Schedule Conflicts', 'Admin / Conflicts', content);
+  container.innerHTML = renderPage('Conflict Detection ⚠️', 'Admin / Conflicts', content);
 
-  document.querySelectorAll('.btn-cancel').forEach(btn => {
+  const resolveBtns = container.querySelectorAll('.btn-resolve');
+  resolveBtns.forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const id = e.target.dataset.id;
-      showModal('Resolve Conflict', 'Cancel this specific appointment to resolve the conflict?', async () => {
-        const cancelRes = await api.put(`/appointments/${id}/cancel`);
-        if (cancelRes.success) {
-          showToast('Appointment cancelled');
-          render(container); // reload
-        } else {
-          showToast(cancelRes.error, 'error');
-        }
+      const idx = e.target.getAttribute('data-index');
+      const conflictGroup = conflicts[idx];
+      
+      conflictGroup.forEach(a => {
+        updateAppointmentStatus(a.id, 'cancelled');
       });
+      
+      showToast('All conflicting appointments have been cancelled', 'success');
+      render(container);
     });
   });
 }

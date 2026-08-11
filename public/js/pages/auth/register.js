@@ -1,126 +1,106 @@
-import { api } from '../../api.js';
 import { setCurrentUser } from '../../state.js';
+import { getUserByEmail, addUser } from '../../data/store.js';
 
 export function render(container) {
   container.innerHTML = `
-    <div class="auth-container">
-      <div class="card auth-card">
-        <h2 style="text-align:center; margin-bottom:2rem; color:var(--primary)">🎓 Create Account</h2>
-        <form id="register-form">
+    <div class="auth-wrapper">
+      <div class="auth-container">
+
+        <div class="auth-brand">
+          <div class="auth-logo">🎓</div>
+          <h1 class="auth-title">UniPortal</h1>
+          <p class="auth-subtitle">Create your account</p>
+        </div>
+
+        <div class="card auth-card">
+          <h2 class="auth-card-title">Create Account</h2>
+          <p style="color:var(--text-2);font-size:var(--text-sm);margin-bottom:1.5rem;text-align:center;">
+            Join the Faculty Appointment Portal
+          </p>
+
           <div class="form-group">
-            <label class="form-label" for="name">Full Name</label>
-            <input type="text" id="name" class="form-control" required placeholder="John Doe">
+            <label class="form-label">Full Name</label>
+            <input type="text" id="reg-name" class="form-control" placeholder="John Doe">
           </div>
           <div class="form-group">
-            <label class="form-label" for="email">Email</label>
-            <input type="email" id="email" class="form-control" required placeholder="name@uni.edu">
+            <label class="form-label">Email</label>
+            <input type="email" id="reg-email" class="form-control" placeholder="name@uni.edu">
           </div>
           <div class="form-group">
-            <label class="form-label" for="password">Password</label>
-            <input type="password" id="password" class="form-control" required placeholder="••••••••">
+            <label class="form-label">Password</label>
+            <input type="password" id="reg-password" class="form-control" placeholder="Min 6 characters">
           </div>
           <div class="form-group">
-            <label class="form-label" for="role">Role</label>
-            <select id="role" class="form-control" required>
+            <label class="form-label">Role</label>
+            <select id="reg-role" class="form-control">
               <option value="student">Student</option>
               <option value="faculty">Faculty</option>
-              <option value="admin">Admin</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="department">Department</label>
-            <input type="text" id="department" class="form-control" required placeholder="Computer Science">
+            <label class="form-label">Department</label>
+            <input type="text" id="reg-department" class="form-control" placeholder="e.g. Computer Science">
           </div>
-          <div id="register-error" style="color:var(--status-cancelled); margin-bottom:1rem; font-size:var(--text-sm);"></div>
-          <button type="submit" id="register-btn" class="btn btn-primary" style="width:100%">Register</button>
-        </form>
-        <div style="text-align:center; margin-top:1.5rem; font-size:var(--text-sm);">
-          Already have an account? <a href="#/login" style="color:var(--primary); text-decoration:none;">Sign In</a>
+
+          <div id="reg-error" style="
+            display:none;
+            color:var(--status-cancelled);
+            background:rgba(239,68,68,0.08);
+            border:1px solid rgba(239,68,68,0.25);
+            border-radius:8px;
+            padding:0.6rem 1rem;
+            font-size:var(--text-sm);
+            margin-bottom:1rem;
+          "></div>
+
+          <button id="reg-btn" class="btn btn-primary"
+            style="width:100%;font-size:var(--text-base);padding:0.8rem;">
+            Create Account
+          </button>
+
+          <div style="text-align:center;margin-top:1.25rem;font-size:var(--text-sm);color:var(--text-2);">
+            Already have an account?
+            <a href="#/login" style="color:var(--primary);text-decoration:none;font-weight:500;">Sign In</a>
+          </div>
         </div>
+
       </div>
     </div>
   `;
 
-  document.getElementById('register-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fullName = document.getElementById('name').value.trim();
-    const email = document.getElementById('email').value.trim();
-    const password = document.getElementById('password').value;
-    const role = document.getElementById('role').value;
-    const department = document.getElementById('department').value.trim();
-    
-    const errorDiv = document.getElementById('register-error');
-    const btn = document.getElementById('register-btn');
+  const btn      = document.getElementById('reg-btn');
+  const errorDiv = document.getElementById('reg-error');
 
-    errorDiv.textContent = '';
-    btn.innerHTML = 'Registering...';
-    btn.disabled = true;
+  function showError(msg) {
+    errorDiv.textContent   = msg;
+    errorDiv.style.display = 'block';
+    btn.disabled           = false;
+    btn.innerHTML          = 'Create Account';
+  }
 
-    try {
-      // 1. Client-side input validation
-      if (!fullName) {
-        errorDiv.textContent = 'Please enter your full name.';
-        return;
-      }
+  btn.addEventListener('click', async () => {
+    const name       = document.getElementById('reg-name').value.trim();
+    const email      = document.getElementById('reg-email').value.trim();
+    const password   = document.getElementById('reg-password').value;
+    const role       = document.getElementById('reg-role').value;
+    const department = document.getElementById('reg-department').value.trim();
 
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!email || !emailRegex.test(email)) {
-        errorDiv.textContent = 'Please enter a valid email address.';
-        return;
-      }
+    // Validate
+    if (!name)                                 return showError('Please enter your full name.');
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showError('Please enter a valid email address.');
+    if (!password || password.length < 6)      return showError('Password must be at least 6 characters.');
+    if (!department)                           return showError('Please enter your department.');
+    if (getUserByEmail(email))                 return showError('An account with this email already exists.');
 
-      if (!password || password.length < 6) {
-        errorDiv.textContent = 'Password must be at least 6 characters.';
-        return;
-      }
+    btn.disabled  = true;
+    btn.innerHTML = 'Creating account…';
+    errorDiv.style.display = 'none';
 
-      if (!['student', 'faculty', 'admin'].includes(role)) {
-        errorDiv.textContent = 'Please select a valid role.';
-        return;
-      }
+    await new Promise(r => setTimeout(r, 600));
 
-      if (!department) {
-        errorDiv.textContent = 'Please enter your department.';
-        return;
-      }
-
-      // 2. Call API
-      const res = await api.post('/auth/register', {
-        fullName,
-        name: fullName,
-        email,
-        password,
-        role,
-        department
-      });
-
-      // 3. Check response.ok / success
-      if (!res.ok && !res.success) {
-        const errorMsg = res.error || (res.data && res.data.error) || 'Registration failed. Please try again.';
-        errorDiv.textContent = errorMsg;
-        return;
-      }
-
-      // 4. Read role from server response ONLY
-      const serverUser = res.data?.user || res.data?.data;
-      const confirmedRole = serverUser?.role;
-
-      if (!confirmedRole) {
-        errorDiv.textContent = 'Registration failed: Server response missing confirmed role.';
-        return;
-      }
-
-      // 5. Store session state locally
-      setCurrentUser(serverUser);
-
-      // 6. Redirect using confirmed role from server
-      window.location.hash = `#/${confirmedRole}/dashboard`;
-    } catch (err) {
-      errorDiv.textContent = err.message || 'An unexpected error occurred. Please try again.';
-    } finally {
-      // 7. Reset button state in finally block so it never stays stuck
-      btn.innerHTML = 'Register';
-      btn.disabled = false;
-    }
+    const newUser = addUser({ name, email, password, role, department });
+    const { password: _pw, ...safeUser } = newUser;
+    setCurrentUser(safeUser);
+    window.location.hash = `#/${role}/dashboard`;
   });
 }

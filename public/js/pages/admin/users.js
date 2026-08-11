@@ -1,26 +1,58 @@
-import { api } from '../../api.js';
-import { renderSpinner, renderPage, renderEmpty, showModal, showToast } from '../../components/shared.js';
+import { getUsers, addUser, removeUser } from '../../data/store.js';
+import { renderBadge, renderPage, showToast, showModal } from '../../components/shared.js';
 
-export async function render(container) {
-  container.innerHTML = renderSpinner();
+function getUser(role) {
+  try {
+    const u = JSON.parse(localStorage.getItem('currentUser'));
+    if (!u || u.role !== role) { window.location.hash = '#/login'; return null; }
+    return u;
+  } catch { window.location.hash = '#/login'; return null; }
+}
 
-  const res = await api.get('/users');
-  if (!res.success) {
-    container.innerHTML = renderPage('Users', 'Admin', `<div class="card"><p>Error loading users.</p></div>`);
-    return;
-  }
+export function render(container) {
+  if (!getUser('admin')) return;
 
-  const users = res.data || [];
-  let filtered = [...users];
+  const users = getUsers();
 
-  const renderTable = (list) => {
-    if (!list.length) return renderEmpty('👥', 'No users found', '');
-    return `
+  const content = `
+    <div class="card" style="margin-bottom: 2rem;">
+      <h3 style="margin-top: 0;">Add New User</h3>
+      <div id="addUserError" style="color: var(--status-cancelled); margin-bottom: 1rem; display: none;"></div>
+      <form id="addUserForm" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: end;">
+        <div class="form-group">
+          <label class="form-label">Name</label>
+          <input type="text" class="form-control" id="addName" placeholder="Full Name" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" class="form-control" id="addEmail" placeholder="Email Address" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="text" class="form-control" id="addPassword" placeholder="Temporary Password" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Role</label>
+          <select class="form-control" id="addRole" required>
+            <option value="student">Student</option>
+            <option value="faculty">Faculty</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Department</label>
+          <input type="text" class="form-control" id="addDepartment" placeholder="E.g. Computer Science" required>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-bottom: 1rem;">Add User</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top: 0;">All Users</h3>
       <div class="table-container">
         <table class="table">
           <thead>
             <tr>
-              <th>User</th>
+              <th>Name</th>
               <th>Email</th>
               <th>Role</th>
               <th>Department</th>
@@ -28,100 +60,71 @@ export async function render(container) {
             </tr>
           </thead>
           <tbody>
-            ${list.map(u => {
-              const initials = u.name.split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase();
+            ${users.map(u => {
+              let badgeClass = 'badge-no-show';
+              if (u.role === 'faculty') badgeClass = 'badge-rescheduled';
+              if (u.role === 'student') badgeClass = 'badge-confirmed';
               return `
-              <tr>
-                <td>
-                  <div style="display:flex; align-items:center; gap:0.75rem;">
-                    <div style="width:32px; height:32px; border-radius:50%; background:var(--primary-glow); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold; color:var(--primary);">
-                      ${initials}
-                    </div>
-                    <span style="font-weight:500;">${u.name}</span>
-                  </div>
-                </td>
-                <td>${u.email}</td>
-                <td><span class="badge ${u.role==='admin'?'badge-rescheduled':u.role==='faculty'?'badge-pending':'badge-confirmed'}">${u.role}</span></td>
-                <td>${u.department || '-'}</td>
-                <td>
-                  <button class="btn btn-ghost btn-delete" data-id="${u.id}" style="color:var(--status-cancelled)">Delete</button>
-                </td>
-              </tr>
-            `}).join('')}
+                <tr>
+                  <td>${u.name}</td>
+                  <td>${u.email}</td>
+                  <td><span class="badge ${badgeClass}">${u.role}</span></td>
+                  <td>${u.department || '-'}</td>
+                  <td>
+                    ${u.role === 'admin' 
+                      ? '<span style="color: var(--text-2); font-size: var(--text-sm);">Protected</span>' 
+                      : `<button class="btn btn-danger btn-remove" data-id="${u.id}" style="padding: 0.25rem 0.5rem; font-size: var(--text-xs);">Remove</button>`}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
           </tbody>
         </table>
-      </div>
-    `;
-  };
-
-  const content = `
-    <div class="card" style="margin-bottom:2rem; display:flex; gap:1rem; align-items:center; justify-content:space-between; flex-wrap:wrap;">
-      <div style="display:flex; gap:0.5rem;">
-        <button class="btn btn-primary filter-btn" data-role="all">All</button>
-        <button class="btn btn-ghost filter-btn" data-role="student">Students</button>
-        <button class="btn btn-ghost filter-btn" data-role="faculty">Faculty</button>
-        <button class="btn btn-ghost filter-btn" data-role="admin">Admins</button>
-      </div>
-      <input type="text" id="user-search" class="input-search" placeholder="Search users..." style="max-width:300px;">
-    </div>
-    <div class="card">
-      <div id="users-table">
-        ${renderTable(filtered)}
       </div>
     </div>
   `;
 
-  container.innerHTML = renderPage('Manage Users', 'Admin / Users', content);
+  container.innerHTML = renderPage('Manage Users 👥', 'Admin / Users', content);
 
-  const updateView = () => {
-    document.getElementById('users-table').innerHTML = renderTable(filtered);
+  const form = container.querySelector('#addUserForm');
+  const errorDiv = container.querySelector('#addUserError');
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    errorDiv.style.display = 'none';
+
+    const name = container.querySelector('#addName').value.trim();
+    const email = container.querySelector('#addEmail').value.trim();
+    const password = container.querySelector('#addPassword').value;
+    const role = container.querySelector('#addRole').value;
+    const department = container.querySelector('#addDepartment').value.trim();
+
+    if (!name || !email || !password || !role || !department) {
+      errorDiv.textContent = 'All fields are required.';
+      errorDiv.style.display = 'block';
+      return;
+    }
     
-    // reattach delete events
-    document.querySelectorAll('.btn-delete').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const id = e.target.dataset.id;
-        showModal('Delete User', 'Are you sure? This is irreversible.', async () => {
-          const delRes = await api.delete(`/users/${id}`);
-          if (delRes.success) {
-            showToast('User deleted');
-            render(container); // full reload to get fresh data
-          } else {
-            showToast(delRes.error, 'error');
-          }
-        });
-      });
-    });
-  };
+    if (!email.includes('@')) {
+      errorDiv.textContent = 'Invalid email format.';
+      errorDiv.style.display = 'block';
+      return;
+    }
 
-  let currentRole = 'all';
-  let currentSearch = '';
+    addUser({ name, email, password, role, department });
+    showToast('User added successfully', 'success');
+    render(container);
+  });
 
-  const applyFilters = () => {
-    filtered = users.filter(u => {
-      const matchRole = currentRole === 'all' || u.role === currentRole;
-      const matchSearch = u.name.toLowerCase().includes(currentSearch) || u.email.toLowerCase().includes(currentSearch);
-      return matchRole && matchSearch;
-    });
-    updateView();
-  };
-
-  document.querySelectorAll('.filter-btn').forEach(btn => {
+  const removeBtns = container.querySelectorAll('.btn-remove');
+  removeBtns.forEach(btn => {
     btn.addEventListener('click', (e) => {
-      document.querySelectorAll('.filter-btn').forEach(b => {
-        b.classList.remove('btn-primary');
-        b.classList.add('btn-ghost');
+      const id = e.target.getAttribute('data-id');
+      showModal('Remove User', 'Are you sure you want to remove this user? This action cannot be undone.', () => {
+        removeUser(id);
+        showToast('User removed', 'success');
+        render(container);
       });
-      e.target.classList.remove('btn-ghost');
-      e.target.classList.add('btn-primary');
-      currentRole = e.target.dataset.role;
-      applyFilters();
     });
   });
-
-  document.getElementById('user-search').addEventListener('input', (e) => {
-    currentSearch = e.target.value.toLowerCase();
-    applyFilters();
-  });
-
-  updateView();
 }
