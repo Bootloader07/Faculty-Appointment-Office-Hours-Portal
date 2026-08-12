@@ -1,4 +1,4 @@
-import { getUsers, getAppointments, getUserById, fmtDateTime } from '../../data/store.js';
+import { getUsers, getAppointments, getUserById, fmtDateTime, getPendingUsers } from '../../data/store.js';
 import { renderBadge, renderEmpty, renderPage } from '../../components/shared.js';
 
 function getUser(role) {
@@ -19,6 +19,7 @@ export function render(container) {
   const totalFaculty = users.filter(u => u.role === 'faculty').length;
   const totalStudents = users.filter(u => u.role === 'student').length;
   const totalBookings = appointments.length;
+  const pendingApprovals = getPendingUsers().length;
 
   const recentBookings = [...appointments]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -51,6 +52,10 @@ export function render(container) {
       <div class="stat-card card">
         <div class="label">Total Bookings</div>
         <div class="value">${totalBookings}</div>
+      </div>
+      <div class="stat-card card" style="${pendingApprovals > 0 ? 'border-color:#f59e0b;cursor:pointer;' : ''}" id="stat-pending-approvals">
+        <div class="label" style="${pendingApprovals > 0 ? 'color:#f59e0b;' : ''}">🕐 Pending Approvals</div>
+        <div class="value" style="${pendingApprovals > 0 ? 'color:#f59e0b;' : ''}">${pendingApprovals}</div>
       </div>
     </div>
 
@@ -128,4 +133,8 @@ export function render(container) {
   container.querySelector('#btnViewBookings').addEventListener('click', () => {
     window.location.hash = '#/admin/bookings';
   });
+  const pendingCard = container.querySelector('#stat-pending-approvals');
+  if (pendingCard && pendingApprovals > 0) {
+    pendingCard.addEventListener('click', () => { window.location.hash = '#/admin/users'; });
+  }
 }

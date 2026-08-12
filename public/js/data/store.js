@@ -28,6 +28,7 @@ const INITIAL_DATA = {
   blockedDates: [],
   appointments: [],
   notifications: [],
+  pendingUsers: [],
 };
 
 // ── Internal read/write ───────────────────────────────────────────────────
@@ -39,7 +40,10 @@ function load() {
       localStorage.setItem(STORE_KEY, JSON.stringify(fresh));
       return fresh;
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    // Safety: migrate stores that pre-date pendingUsers
+    if (!parsed.pendingUsers) parsed.pendingUsers = [];
+    return parsed;
   } catch {
     return JSON.parse(JSON.stringify(INITIAL_DATA));
   }
@@ -87,6 +91,91 @@ export function removeUser(id) {
   const data = load();
   data.users = data.users.filter(u => u.id !== id);
   save(data);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// PENDING REGISTRATIONS
+// ══════════════════════════════════════════════════════════════════════════
+
+export function getPendingUsers() {
+  return load().pendingUsers || [];
+}
+
+export function submitRegistrationRequest(userData) {
+  const data = load();
+
+  // Email already in active users?
+  if (data.users.some(u => u.email.toLowerCase() === userData.email.toLowerCase())) {
+    return { success: false, error: 'This email is already registered. Please sign in.' };
+  }
+
+  // Email already pending?
+  if ((data.pendingUsers || []).some(u => u.email.toLowerCase() === userData.email.toLowerCase())) {
+    return { success: false, error: 'A registration request for this email is already pending admin approval.' };
+  }
+
+  if (!data.pendingUsers) data.pendingUsers = [];
+
+  const pendingUser = {
+    id          : 'pending_' + Date.now(),
+    name        : userData.name,
+    email       : userData.email,
+    password    : userData.password,
+    role        : userData.role,
+    department  : userData.department,
+    requestedAt : new Date().toISOString(),
+    status      : 'pending',
+  };
+  data.pendingUsers.push(pendingUser);
+
+  // Notify admin (id 'u1')
+  if (!data.notifications) data.notifications = [];
+  data.notifications.push({
+    id        : 'notif' + Date.now(),
+    userId    : 'u1',
+    type      : 'registration_request',
+    message   : '🆕 New registration request from ' + userData.name +
+                ' (' + userData.role + ' — ' + userData.department + '). Email: ' + userData.email,
+    read      : false,
+    createdAt : new Date().toISOString(),
+  });
+
+  save(data);
+  return { success: true };
+}
+
+export function approveRegistration(pendingId) {
+  const data = load();
+  if (!data.pendingUsers) data.pendingUsers = [];
+
+  const pending = data.pendingUsers.find(u => u.id === pendingId);
+  if (!pending) return { success: false, error: 'Request not found.' };
+
+  const newUser = {
+    id         : 'u' + Date.now(),
+    name       : pending.name,
+    email      : pending.email,
+    password   : pending.password,
+    role       : pending.role,
+    department : pending.department,
+    createdAt  : new Date().toISOString(),
+  };
+  data.users.push(newUser);
+  data.pendingUsers = data.pendingUsers.filter(u => u.id !== pendingId);
+  save(data);
+  return { success: true, user: newUser };
+}
+
+export function rejectRegistration(pendingId) {
+  const data = load();
+  if (!data.pendingUsers) data.pendingUsers = [];
+
+  const pending = data.pendingUsers.find(u => u.id === pendingId);
+  if (!pending) return { success: false, error: 'Request not found.' };
+
+  data.pendingUsers = data.pendingUsers.filter(u => u.id !== pendingId);
+  save(data);
+  return { success: true };
 }
 
 // ══════════════════════════════════════════════════════════════════════════

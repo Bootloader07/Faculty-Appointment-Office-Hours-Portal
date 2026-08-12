@@ -1,9 +1,10 @@
-/**
+﻿/**
  * app.js — Hash-based SPA router
  * Reads currentUser synchronously from localStorage (via state.js).
  * Never awaits a network call before deciding where to route.
  */
 import { currentUser, setCurrentUser, clearCurrentUser } from './state.js';
+import { hydrateVisualComponents } from './components/ui.js';
 
 // ── Page modules ──────────────────────────────────────────────────────────
 import * as loginPage           from './pages/auth/login.js';
@@ -80,51 +81,63 @@ function renderLayout(user, contentModule, param) {
 
   app.innerHTML = `
     <div class="app-layout">
-      <aside class="sidebar">
-        <div style="font-size:1.25rem; font-weight:700; margin-bottom:2rem; color:var(--primary);">🎓 UniPortal</div>
-        <div class="sidebar-nav">${sidebarLinks}</div>
-        <div style="margin-top:auto; padding-top:2rem;">
-          <button class="btn btn-outline" style="width:100%;"
-            onclick="window.location.hash='#/logout';">
-            ⬅ Logout
-          </button>
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="sidebar__top">
+          <div class="sidebar-brand-row">
+            <a class="sidebar-brand" href="#/${user.role}/dashboard" aria-label="UniPortal dashboard">
+              <span class="sidebar-brand__mark" aria-hidden="true">U</span>
+              <span class="sidebar-brand__copy"><strong>UniPortal</strong><small>Academic workspace</small></span>
+            </a>
+            <button class="sidebar-toggle" type="button" data-sidebar-toggle aria-label="Collapse sidebar" aria-expanded="true"><span aria-hidden="true">‹</span></button>
+          </div>
+          <p class="sidebar-section-label">Workspace</p>
+          <nav class="sidebar-nav" aria-label="Role navigation">${sidebarLinks}</nav>
+        </div>
+
+        <div class="sidebar__footer">
+          <div class="sidebar-user">
+            <span class="avatar-initials sidebar-user__avatar" style="--avatar-hue:250" aria-hidden="true">${user.name.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase()}</span>
+            <span class="sidebar-user__details"><strong>${user.name}</strong><span class="sidebar-user__role">${user.role}</span></span>
+          </div>
+          <button class="btn btn-ghost sidebar-logout" type="button" onclick="window.location.hash='#/logout';"><span aria-hidden="true">↙</span><span>Logout</span></button>
         </div>
       </aside>
+
       <main class="main-content">
-        <nav class="navbar">
-          <div style="display:flex; align-items:center; gap:0.75rem;">
-            <span style="font-weight:600; font-size:var(--text-lg);">${user.name}</span>
-            <span class="badge badge-confirmed" style="text-transform:capitalize;">${user.role}</span>
+        <header class="navbar">
+          <div class="navbar__context">
+            <span class="navbar__eyebrow">${user.role} workspace</span>
+            <strong>Welcome back, ${user.name}</strong>
           </div>
-          <div id="notif-btn" style="position:relative; cursor:pointer;">
-            <button class="btn btn-ghost" style="font-size:1.2rem;" id="notif-bell-btn">🔔</button>
-            <span id="notif-badge" style="
-              display:none;
-              position:absolute; top:0; right:0;
-              background:var(--status-cancelled); color:#fff;
-              border-radius:9999px; font-size:0.6rem; font-weight:700;
-              min-width:16px; height:16px; line-height:16px; text-align:center;
-              padding:0 4px;
-            "></span>
-            <div id="notif-dropdown" style="
-              display:none; position:absolute; right:0; top:calc(100% + 8px);
-              background:var(--bg-surface); border:1px solid var(--glass-border);
-              border-radius:12px; min-width:280px; max-height:360px;
-              overflow-y:auto; z-index:100; padding:0.5rem;
-              box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-            " id="notif-list"></div>
+          <div class="navbar__actions">
+            <div id="notif-btn" class="notification-menu">
+              <button class="notification-trigger" type="button" id="notif-bell-btn" aria-label="Notifications" aria-expanded="false"><span aria-hidden="true">♢</span></button>
+              <span id="notif-badge" class="notification-count" style="display:none;"></span>
+              <div id="notif-dropdown" class="notification-panel" style="display:none;"></div>
+            </div>
           </div>
-        </nav>
-        <div id="page-content"></div>
+        </header>
+        <div id="page-content" class="page-content page-transition"></div>
       </main>
     </div>
-  `;
+  
+`;
 
   // Wire up notification bell
   setupNotifications(user);
 
   const container = document.getElementById('page-content');
   contentModule.render(container, param);
+
+  // Presentation-only sidebar preference; it does not change routes or data.
+  const sidebar = app.querySelector('.sidebar');
+  const sidebarToggle = app.querySelector('[data-sidebar-toggle]');
+  if (sidebar && sidebarToggle) {
+    sidebarToggle.addEventListener('click', () => {
+      const collapsed = sidebar.classList.toggle('is-collapsed');
+      sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+    });
+  }
 }
 
 function setupNotifications(user) {
@@ -240,6 +253,8 @@ function router() {
   } else {
     renderLayout(user, route.module, param);
   }
+  // Presentation-only hydration: adds optional visual effects after existing markup renders.
+  hydrateVisualComponents(app);
 }
 
 window.addEventListener('hashchange', router);

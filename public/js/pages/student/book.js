@@ -1,5 +1,14 @@
-import { getUsers, getUserById, getAppointmentsByStudent, saveAppointment, updateAppointmentStatus, addNotification, getAvailableSlots, fmtDateTime, fmtDate, fmtTime } from '../../data/store.js';
-import { renderBadge, renderEmpty, renderPage, showToast, showModal } from '../../components/shared.js';
+import {
+  getUserById,
+  getAvailableSlots,
+  saveAppointment,
+  addNotification,
+  fmtDateTime,
+  fmtDate,
+  fmtTime,
+  getUsers
+} from '../../data/store.js';
+import { renderEmpty, renderPage, showToast } from '../../components/shared.js';
 
 function getUser() {
   try {
@@ -20,55 +29,51 @@ export function render(container, facultyId) {
   selectedDate = null;
   selectedSlot = null;
 
-  const content = document.createElement('div');
-  
   if (!facultyId) {
-    content.innerHTML = `
-      <div class="card" style="padding: 2rem; text-align: center;">
-        <h3 style="color: var(--error);">No faculty selected</h3>
-        <button class="btn btn-primary" onclick="window.location.hash='#/student/faculty'" style="margin-top: 1rem;">Go Back</button>
+    container.innerHTML = renderPage('Book Appointment', 'Student / Book Appointment', `
+      <div class="card" style="padding:2rem;text-align:center;">
+        <h3 style="color:var(--status-cancelled);">No faculty selected</h3>
+        <button class="btn btn-primary" id="go-back-btn" style="margin-top:1rem;">Go Back</button>
       </div>
-    `;
-    container.innerHTML = '';
-    container.appendChild(renderPage('Book Appointment', 'Student / Book Appointment', content));
+    `);
+    container.querySelector('#go-back-btn').onclick = () => window.location.hash = '#/student/faculty';
     return;
   }
 
   const faculty = getUserById(facultyId);
   if (!faculty) {
-    content.innerHTML = `
-      <div class="card" style="padding: 2rem; text-align: center;">
-        <h3 style="color: var(--error);">Faculty not found</h3>
-        <button class="btn btn-primary" onclick="window.location.hash='#/student/faculty'" style="margin-top: 1rem;">Go Back</button>
+    container.innerHTML = renderPage('Book Appointment', 'Student / Book Appointment', `
+      <div class="card" style="padding:2rem;text-align:center;">
+        <h3 style="color:var(--status-cancelled);">Faculty not found</h3>
+        <button class="btn btn-primary" id="go-back-btn" style="margin-top:1rem;">Go Back</button>
       </div>
-    `;
-    container.innerHTML = '';
-    container.appendChild(renderPage('Book Appointment', 'Student / Book Appointment', content));
+    `);
+    container.querySelector('#go-back-btn').onclick = () => window.location.hash = '#/student/faculty';
     return;
   }
 
   const slots = getAvailableSlots(facultyId, 14);
-  
+
   if (slots.length === 0) {
-    content.innerHTML = `
-      <div class="card" style="padding: 2rem; display: flex; align-items: center; gap: 1.5rem; margin-bottom: 2rem;">
-        <div style="width: 64px; height: 64px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold;">
+    container.innerHTML = renderPage('Book Appointment', 'Student / Book Appointment', `
+      <div class="card" style="padding:2rem;display:flex;align-items:center;gap:1.5rem;margin-bottom:2rem;">
+        <div style="width:64px;height:64px;border-radius:50%;background:var(--primary);color:white;
+          display:flex;align-items:center;justify-content:center;font-size:1.5rem;font-weight:bold;">
           ${faculty.name.charAt(0).toUpperCase()}
         </div>
         <div>
-          <h2 style="margin: 0 0 0.25rem 0;">${faculty.name}</h2>
+          <h2 style="margin:0 0 0.25rem 0;">${faculty.name}</h2>
           <div class="text-2">${faculty.department || 'General Department'}</div>
         </div>
       </div>
-      <div class="card" style="padding: 3rem 1rem;">
-        ${renderEmpty('calendar', 'No slots available', 'This faculty has no available slots in the next 14 days.')}
-        <div style="text-align: center; margin-top: 1.5rem;">
-          <button class="btn btn-outline" onclick="window.location.hash='#/student/faculty'">Browse Other Faculty</button>
+      <div class="card" style="padding:3rem 1rem;">
+        ${renderEmpty('🕒', 'No slots available', faculty.name + ' has no available slots in the next 14 days.')}
+        <div style="text-align:center;margin-top:1.5rem;">
+          <button class="btn btn-outline" id="browse-btn">Browse Other Faculty</button>
         </div>
       </div>
-    `;
-    container.innerHTML = '';
-    container.appendChild(renderPage('Book Appointment', 'Student / Book Appointment', content));
+    `);
+    container.querySelector('#browse-btn').onclick = () => window.location.hash = '#/student/faculty';
     return;
   }
 
@@ -80,55 +85,62 @@ export function render(container, facultyId) {
 
   const availableDates = Object.keys(slotsByDate).sort();
 
-  content.innerHTML = `
-    <div class="card" style="padding: 2rem; display: flex; align-items: center; gap: 1.5rem; margin-bottom: 2rem;">
-      <div style="width: 64px; height: 64px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold;">
+  // ── Render the booking UI ─────────────────────────────────────────────
+  container.innerHTML = renderPage('Book Appointment', 'Student / Book Appointment', `
+    <div class="card" style="padding:2rem;display:flex;align-items:center;gap:1.5rem;margin-bottom:2rem;">
+      <div style="width:64px;height:64px;border-radius:50%;background:var(--primary);color:white;
+        display:flex;align-items:center;justify-content:center;font-size:1.5rem;font-weight:bold;">
         ${faculty.name.charAt(0).toUpperCase()}
       </div>
       <div>
-        <h2 style="margin: 0 0 0.25rem 0;">${faculty.name}</h2>
+        <h2 style="margin:0 0 0.25rem 0;">${faculty.name}</h2>
         <div class="text-2">${faculty.department || 'General Department'}</div>
       </div>
     </div>
 
-    <div class="card" style="padding: 2rem;">
-      <h3 style="margin-top: 0;">1. Select Date</h3>
-      <div id="date-picker" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 2rem;"></div>
+    <div class="card" style="padding:2rem;">
+      <h3 style="margin-top:0;">1. Select Date</h3>
+      <div id="date-picker" style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:2rem;"></div>
 
-      <div id="time-section" style="display: none; margin-bottom: 2rem;">
+      <div id="time-section" style="display:none;margin-bottom:2rem;">
         <h3>2. Select Time</h3>
-        <div id="time-picker" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.5rem;"></div>
+        <div id="time-picker" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:0.5rem;"></div>
       </div>
 
-      <div id="form-section" style="display: none;">
+      <div id="form-section" style="display:none;">
         <h3>3. Reason for Appointment</h3>
-        <textarea id="reason-input" class="input" rows="4" placeholder="Briefly describe what you'd like to discuss (min 10 characters)..." style="width: 100%; margin-bottom: 1rem; border-radius: 4px; padding: 0.75rem; border: 1px solid var(--border);"></textarea>
-        <div id="form-error" style="color: var(--error); margin-bottom: 1rem; display: none;"></div>
-        <div id="form-success" style="color: var(--success, #10b981); margin-bottom: 1rem; display: none; font-weight: bold;"></div>
-        <button id="btn-submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1.1rem;">Submit Booking Request</button>
+        <textarea id="reason-input" class="input" rows="4"
+          placeholder="Briefly describe what you'd like to discuss (min 10 characters)..."
+          style="width:100%;margin-bottom:1rem;border-radius:4px;padding:0.75rem;
+                 border:1px solid var(--border);box-sizing:border-box;"></textarea>
+        <div id="form-error" style="color:var(--status-cancelled);margin-bottom:1rem;display:none;"></div>
+        <div id="form-success" style="color:var(--status-confirmed);margin-bottom:1rem;display:none;font-weight:bold;"></div>
+        <button id="btn-submit" class="btn btn-primary" style="width:100%;padding:1rem;font-size:1.1rem;">
+          Submit Booking Request
+        </button>
       </div>
     </div>
-  `;
+  `);
 
-  const datePicker = content.querySelector('#date-picker');
-  const timeSection = content.querySelector('#time-section');
-  const timePicker = content.querySelector('#time-picker');
-  const formSection = content.querySelector('#form-section');
-  const reasonInput = content.querySelector('#reason-input');
-  const formError = content.querySelector('#form-error');
-  const formSuccess = content.querySelector('#form-success');
-  const btnSubmit = content.querySelector('#btn-submit');
+  // ── Wire up the interactive parts ──────────────────────────────────────
+  const datePicker  = container.querySelector('#date-picker');
+  const timeSection = container.querySelector('#time-section');
+  const timePicker  = container.querySelector('#time-picker');
+  const formSection = container.querySelector('#form-section');
+  const reasonInput = container.querySelector('#reason-input');
+  const formError   = container.querySelector('#form-error');
+  const formSuccess = container.querySelector('#form-success');
+  const btnSubmit   = container.querySelector('#btn-submit');
 
   function renderDateSelector() {
     datePicker.innerHTML = '';
     availableDates.forEach(dateKey => {
       const btn = document.createElement('button');
-      const isSelected = selectedDate === dateKey;
-      btn.className = `btn ${isSelected ? 'btn-primary' : 'btn-outline'}`;
+      btn.className = 'btn ' + (selectedDate === dateKey ? 'btn-primary' : 'btn-outline');
       btn.textContent = fmtDate(dateKey + 'T00:00:00');
       btn.onclick = () => {
         selectedDate = dateKey;
-        selectedSlot = null; // Reset time when date changes
+        selectedSlot = null;
         renderDateSelector();
         renderSlotPicker();
       };
@@ -142,19 +154,15 @@ export function render(container, facultyId) {
       formSection.style.display = 'none';
       return;
     }
-    
     timeSection.style.display = 'block';
     timePicker.innerHTML = '';
-    
-    const daySlots = slotsByDate[selectedDate];
-    daySlots.forEach(slot => {
+    (slotsByDate[selectedDate] || []).forEach(slot => {
       const btn = document.createElement('button');
-      const isSelected = selectedSlot && selectedSlot.slotId === slot.slotId;
-      btn.className = `btn ${isSelected ? 'btn-primary' : 'btn-outline'}`;
+      btn.className = 'btn ' + (selectedSlot && selectedSlot.slotId === slot.slotId ? 'btn-primary' : 'btn-outline');
       btn.textContent = slot.timeLabel;
       btn.onclick = () => {
         selectedSlot = slot;
-        renderSlotPicker(); // update time selection UI
+        renderSlotPicker();
         formSection.style.display = 'block';
       };
       timePicker.appendChild(btn);
@@ -171,7 +179,6 @@ export function render(container, facultyId) {
       formError.style.display = 'block';
       return;
     }
-
     if (reason.length < 10) {
       formError.textContent = 'Please provide a reason of at least 10 characters.';
       formError.style.display = 'block';
@@ -179,35 +186,29 @@ export function render(container, facultyId) {
     }
 
     btnSubmit.disabled = true;
-    
+
     saveAppointment({
-      studentId: user.id,
-      facultyId: facultyId,
+      studentId   : user.id,
+      facultyId,
       slotDatetime: selectedSlot.datetime,
-      duration: selectedSlot.duration,
-      reason: reason,
-      status: 'pending'
+      duration    : selectedSlot.duration,
+      reason,
+      status      : 'pending',
     });
 
     addNotification(
-      facultyId, 
-      'booking_request', 
-      `New appointment request from ${user.name} on ${fmtDateTime(selectedSlot.datetime)}. Reason: ${reason}`
+      facultyId,
+      'booking_request',
+      'New appointment request from ' + user.name + ' on ' + fmtDateTime(selectedSlot.datetime) + '. Reason: ' + reason
     );
 
-    formSuccess.textContent = 'Booking request sent! Awaiting faculty approval.';
+    formSuccess.textContent = '✅ Booking request submitted! Awaiting faculty approval.';
     formSuccess.style.display = 'block';
-    formSection.style.display = 'block'; // ensure it stays visible
     timeSection.style.display = 'none';
     datePicker.style.display = 'none';
 
-    setTimeout(() => {
-      window.location.hash = '#/student/appointments';
-    }, 2000);
+    setTimeout(() => { window.location.hash = '#/student/appointments'; }, 2000);
   };
 
   renderDateSelector();
-
-  container.innerHTML = '';
-  container.appendChild(renderPage('Book Appointment', 'Student / Book Appointment', content));
 }

@@ -1,4 +1,4 @@
-import { getUsers, getUserById, getAppointmentsByStudent, saveAppointment, updateAppointmentStatus, addNotification, getAvailableSlots, fmtDateTime, fmtDate, fmtTime } from '../../data/store.js';
+﻿import { getUsers, getUserById, getAppointmentsByStudent, saveAppointment, updateAppointmentStatus, addNotification, getAvailableSlots, fmtDateTime, fmtDate, fmtTime } from '../../data/store.js';
 import { renderBadge, renderEmpty, renderPage, showToast, showModal } from '../../components/shared.js';
 
 function getUser() {
@@ -24,30 +24,54 @@ export function render(container) {
   content.className = 'dashboard-container';
 
   content.innerHTML = `
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
-      <div class="card" style="padding: 1.5rem; text-align: center;">
-        <div style="font-size: 2rem; font-weight: bold; color: var(--primary);">${upcomingConfirmed.length}</div>
-        <div class="text-2">Upcoming Appointments</div>
-      </div>
-      <div class="card" style="padding: 1.5rem; text-align: center;">
-        <div style="font-size: 2rem; font-weight: bold; color: var(--warning, #f59e0b);">${pendingApts.length}</div>
-        <div class="text-2">Pending Requests</div>
-      </div>
-      <div class="card" style="padding: 1.5rem; text-align: center;">
-        <div style="font-size: 2rem; font-weight: bold; color: var(--success, #10b981);">${pastApts.length}</div>
-        <div class="text-2">Past Appointments</div>
-      </div>
-    </div>
+    <section class="student-dashboard page-transition">
+      <header class="student-hero">
+        <div class="student-hero__copy">
+          <span class="section-kicker">Student workspace</span>
+          <h1>Plan your next <span>conversation.</span></h1>
+          <p>Keep appointment requests, confirmed office hours, and your academic schedule in one focused view.</p>
+        </div>
+        <button class="btn btn-primary animated-button student-hero__cta" id="btn-browse-faculty" type="button"><span>Browse faculty</span><span class="button-icon" aria-hidden="true">→</span></button>
+      </header>
 
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-      <h2>My Upcoming Appointments</h2>
-      <button class="btn btn-primary" id="btn-browse-faculty">Browse Faculty & Book Appointment</button>
-    </div>
-    <div id="upcoming-list" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 2rem;"></div>
+      <div class="student-stats-grid reveal-stagger" aria-label="Appointment summary">
+        <article class="student-stat card tilt-card" data-tilt style="--stagger-index:0">
+          <div class="student-stat__head"><span class="stat-icon" aria-hidden="true">◷</span><span class="student-stat__caption">Scheduled</span></div>
+          <strong class="stat-value" data-count="${upcomingConfirmed.length}">0</strong>
+          <span class="stat-label">Upcoming appointments</span>
+        </article>
+        <article class="student-stat card tilt-card" data-tilt style="--stagger-index:1">
+          <div class="student-stat__head"><span class="stat-icon" aria-hidden="true">◌</span><span class="student-stat__caption">Awaiting review</span></div>
+          <strong class="stat-value" data-count="${pendingApts.length}">0</strong>
+          <span class="stat-label">Pending requests</span>
+        </article>
+        <article class="student-stat card tilt-card" data-tilt style="--stagger-index:2">
+          <div class="student-stat__head"><span class="stat-icon" aria-hidden="true">✓</span><span class="student-stat__caption">Archive</span></div>
+          <strong class="stat-value" data-count="${pastApts.length}">0</strong>
+          <span class="stat-label">Past appointments</span>
+        </article>
+      </div>
 
-    <h2 style="margin-bottom: 1rem;">My Pending Requests</h2>
-    <div id="pending-list" style="display: flex; flex-direction: column; gap: 1rem;"></div>
-  `;
+      <div class="student-dashboard__sections">
+        <section class="dashboard-panel card">
+          <div class="dashboard-panel__heading">
+            <div><span class="section-kicker">Calendar</span><h2>Upcoming appointments</h2></div>
+            <span class="panel-status panel-status--live">Confirmed</span>
+          </div>
+          <div id="upcoming-list" class="appointment-stack"></div>
+        </section>
+
+        <section class="dashboard-panel card">
+          <div class="dashboard-panel__heading">
+            <div><span class="section-kicker">Requests</span><h2>Pending approval</h2></div>
+            <span class="panel-status panel-status--pending">In review</span>
+          </div>
+          <div id="pending-list" class="appointment-stack"></div>
+        </section>
+      </div>
+    </section>
+  
+`;
 
   // Render upcoming
   const upcomingContainer = content.querySelector('#upcoming-list');

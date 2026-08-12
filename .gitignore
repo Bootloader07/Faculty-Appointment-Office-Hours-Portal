@@ -1,1 +1,6 @@
 node_modules/
+.env
+.gitignore
+architecture.md
+coding_rules.md
+Project_context.md
