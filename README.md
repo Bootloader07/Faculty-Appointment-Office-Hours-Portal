@@ -26,8 +26,6 @@ A role-based web application that lets students book appointments with faculty d
 | Backend | Node.js |
 | Database | SQL (parameterised queries only) |
 | Auth | Role-based, session/token-based (no third-party SSO in MVP) |
-| App Builder | Antigravity |
-| AI Assistance | Gemini 2.5 Flash (UI) + Claude Sonnet 4.6 (logic) |
 
 ---
 
@@ -131,13 +129,4 @@ Or click **Register** to create your own account with a valid email format.
 | **Phase 3** | LMS integration (Moodle/Canvas), WhatsApp/SMS, AI meeting summarizer, mobile app |
 
 ---
-
-## 🧪 Known Issues Fixed During Development
-
-- Registration button getting stuck on "Registering..." — fixed by always resetting loading state in a `finally` block
-- Redirect landing on `/undefined/dashboard` — fixed by reading the user's role from the server's confirmed response instead of local state
-- Dashboard stuck on an infinite loading spinner — fixed with the same loading-state pattern applied to the appointments fetch
-
----
-
 
